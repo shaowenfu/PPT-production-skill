@@ -1,1 +1,5 @@
 Tasks/PPT/archive
+.env
+venv
+*/__pycache__
+PPT/*
