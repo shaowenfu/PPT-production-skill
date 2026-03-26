@@ -12,23 +12,23 @@ from __future__ import annotations
 
 import argparse
 import base64
-import sys
 import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from _bootstrap import bootstrap_project
+
+bootstrap_project(__file__)
 
 from openai import OpenAI
 from PIL import Image
 
-from pptflow.cli import run_cli
+from pptflow.cli import print_stderr, run_cli
 from pptflow.config import load_settings
 from pptflow.errors import InputError
 from pptflow.json_io import read_json, write_json
+from pptflow.paths import resolve_project_dir
 from pptflow.schemas import AssetItem, AssetManifest, PromptDocument
 from pptflow.state_store import (
     append_transition,
@@ -55,38 +55,32 @@ def _generate_image(
     output_path: Path,
 ) -> tuple[bool, dict | None]:
     """统一的图像生成函数（仅 Doubao）"""
-    try:
-        response = client.images.generate(
-            model=model,
-            prompt=prompt,
-            size="1792x1024",
-        )
+    response = client.images.generate(
+        model=model,
+        prompt=prompt,
+        size="1792x1024",
+    )
 
-        first_data = response.data[0]
+    first_data = response.data[0]
 
-        # 优先使用 b64_json，否则使用 url
-        if hasattr(first_data, 'b64_json') and first_data.b64_json:
-            # 从 base64 解码并保存
-            img_data = base64.b64decode(first_data.b64_json)
-            with open(output_path, 'wb') as f:
-                f.write(img_data)
-        elif hasattr(first_data, 'url') and first_data.url:
-            # 从 URL 下载
-            urllib.request.urlretrieve(first_data.url, output_path)
-        else:
-            return False, None
+    # 优先使用 b64_json，否则使用 url
+    if hasattr(first_data, "b64_json") and first_data.b64_json:
+        img_data = base64.b64decode(first_data.b64_json)
+        with output_path.open("wb") as handle:
+            handle.write(img_data)
+    elif hasattr(first_data, "url") and first_data.url:
+        urllib.request.urlretrieve(first_data.url, output_path)
+    else:
+        return False, None
 
-        # 获取图片实际尺寸
-        with Image.open(output_path) as pil_img:
-            width, height = pil_img.size
+    with Image.open(output_path) as pil_img:
+        width, height = pil_img.size
 
-        return True, {"width": width, "height": height}
-    except Exception as e:
-        raise e
+    return True, {"width": width, "height": height}
 
 
 def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
-    project_dir = Path(args.project_dir).expanduser().resolve()
+    project_dir = resolve_project_dir(args.project_dir, create=False)
 
     # 1. 加载设置与环境
     settings = load_settings()
@@ -122,7 +116,7 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
             old_manifest = AssetManifest(**read_json(manifest_path))
             for item in old_manifest.items:
                 generated_items_dict[item.page_id] = item
-        except:
+        except Exception:
             pass
 
     failed_pages = []
@@ -142,11 +136,11 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
                     provider="volcengine",
                     model=settings.image_model
                 )
-            print(f"跳过已存在的页面: {item.page_id}")
+            print_stderr(f"跳过已存在的页面: {item.page_id}")
             continue
 
         try:
-            print(f"正在为页面 {item.page_id} 生成图像 ({settings.image_model})...")
+            print_stderr(f"正在为页面 {item.page_id} 生成图像 ({settings.image_model})...")
 
             success, dims = _generate_image(client, settings.image_model, item.prompt, output_path)
 
@@ -172,13 +166,14 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
         write_json(manifest_path, manifest.model_dump() if hasattr(manifest, 'model_dump') else manifest.dict())
 
     # 7. 更新状态
+    previous_state = state["current_state"]
     state = set_artifact(state, "assets_manifest", "assets/manifest.json", exists=True)
     state["current_state"] = "AssetsGenerated"
     state["last_completed_step"] = TOOL_NAME
 
-    append_transition(state, {
+    state = append_transition(state, {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "from_state": state.get("current_state", "PlanConfirmed"),
+        "from_state": previous_state,
         "to_state": "AssetsGenerated",
         "trigger": "tool_success",
         "step": TOOL_NAME,
@@ -188,10 +183,10 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "project_id": state["project_id"],
+        "artifacts": ["assets/manifest.json"],
+        "metrics": {"images_generated": len(final_items), "images_failed": len(failed_pages)},
         "model": settings.image_model,
-        "images_generated": len(final_items),
         "failed_pages": failed_pages,
-        "artifacts": ["assets/manifest.json"]
     }
 
 

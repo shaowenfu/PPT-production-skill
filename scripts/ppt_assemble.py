@@ -12,20 +12,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime
-from pathlib import Path
-from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from _bootstrap import bootstrap_project
 
-from pptx import Presentation
+bootstrap_project(__file__)
+
 from pptflow.cli import run_cli
-from pptflow.errors import InputError, StateStoreError
+from pptflow.errors import InputError
 from pptflow.json_io import read_json
-from pptflow.paths import ProjectPaths
+from pptflow.paths import resolve_project_dir
 from pptflow.ppt_builder import (
     create_presentation,
     get_blank_layout,
@@ -49,7 +45,7 @@ def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     return parser
 
 def handle_assemble(args: argparse.Namespace) -> dict[str, Any]:
-    project_dir = Path(args.project_dir).expanduser().resolve()
+    project_dir = resolve_project_dir(args.project_dir, create=False)
     
     # 1. 加载状态与路径
     state = load_state(project_dir)
@@ -106,13 +102,14 @@ def handle_assemble(args: argparse.Namespace) -> dict[str, Any]:
     prs.save(str(output_pptx))
 
     # 6. 更新状态
+    previous_state = state["current_state"]
     state = set_artifact(state, "deck", "deck/deck.pptx", exists=True)
     state["current_state"] = "DeckAssembled"
     state["last_completed_step"] = TOOL_NAME
     
-    append_transition(state, {
+    state = append_transition(state, {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "from_state": state.get("current_state", "AssetsGenerated"),
+        "from_state": previous_state,
         "to_state": "DeckAssembled",
         "trigger": "tool_success",
         "step": TOOL_NAME,
@@ -122,9 +119,9 @@ def handle_assemble(args: argparse.Namespace) -> dict[str, Any]:
 
     return {
         "project_id": project_id,
-        "total_slides": len(plan.pages),
-        "images_inserted": images_count,
-        "output_file": "deck/deck.pptx"
+        "artifacts": ["deck/deck.pptx"],
+        "metrics": {"total_slides": len(plan.pages), "images_inserted": images_count},
+        "output_file": "deck/deck.pptx",
     }
 
 def main() -> int:

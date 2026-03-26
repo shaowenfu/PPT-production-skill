@@ -10,9 +10,22 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Mapping, Optional
 
-from .errors import EnvironmentError as WorkflowEnvironmentError
+from .errors import InvalidEnvironmentError, MissingAPIKeyError
+
+DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEFAULT_OFOX_BASE_URL = "https://api.ofox.ai/v1"
+DEFAULT_TEXT_MODEL = "deepseek-chat"
+DEFAULT_IMAGE_MODEL = "volcengine/doubao-seedream-5.0-lite"
+DEFAULT_LANGUAGE = "zh-CN"
+DEFAULT_ASPECT_RATIO = "16:9"
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
+
+REQUIRED_SECRET_ENV_VARS = (
+    "DEEPSEEK_API_KEY",
+    "OFOX_API_KEY",
+)
 
 
 def _load_dotenv(env_file: Optional[Path] = None) -> None:
@@ -60,13 +73,80 @@ class Settings:
     """
     deepseek_api_key: str
     ofox_api_key: str
-    deepseek_base_url: str = "https://api.deepseek.com"
-    ofox_base_url: str = "https://api.ofox.ai/v1"
-    text_model: str = "deepseek-chat"
-    image_model: str = "volcengine/doubao-seedream-5.0-lite"
-    default_language: str = "zh-CN"
-    default_aspect_ratio: str = "16:9"
-    request_timeout_seconds: float = 120.0
+    deepseek_base_url: str = DEFAULT_DEEPSEEK_BASE_URL
+    ofox_base_url: str = DEFAULT_OFOX_BASE_URL
+    text_model: str = DEFAULT_TEXT_MODEL
+    image_model: str = DEFAULT_IMAGE_MODEL
+    default_language: str = DEFAULT_LANGUAGE
+    default_aspect_ratio: str = DEFAULT_ASPECT_RATIO
+    request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
+
+
+def read_settings_values(env_file: Optional[Path] = None) -> dict[str, str]:
+    _load_dotenv(env_file)
+    return {
+        "DEEPSEEK_API_KEY": os.environ.get("DEEPSEEK_API_KEY", "").strip(),
+        "OFOX_API_KEY": os.environ.get("OFOX_API_KEY", "").strip(),
+        "DEEPSEEK_BASE_URL": os.environ.get("DEEPSEEK_BASE_URL", "").strip(),
+        "OFOX_BASE_URL": os.environ.get("OFOX_BASE_URL", "").strip(),
+        "PPT_TEXT_MODEL": os.environ.get("PPT_TEXT_MODEL", "").strip(),
+        "PPT_IMAGE_MODEL": os.environ.get("PPT_IMAGE_MODEL", "").strip(),
+        "PPT_DEFAULT_LANGUAGE": os.environ.get("PPT_DEFAULT_LANGUAGE", "").strip(),
+        "PPT_DEFAULT_ASPECT_RATIO": os.environ.get("PPT_DEFAULT_ASPECT_RATIO", "").strip(),
+        "PPT_REQUEST_TIMEOUT_SECONDS": os.environ.get("PPT_REQUEST_TIMEOUT_SECONDS", "").strip(),
+    }
+
+
+def _missing_required_secret_env_vars(raw_values: Mapping[str, str]) -> list[str]:
+    return [env_var for env_var in REQUIRED_SECRET_ENV_VARS if not raw_values.get(env_var, "").strip()]
+
+
+def validate_settings(raw_values: Mapping[str, str]) -> Settings:
+    missing = _missing_required_secret_env_vars(raw_values)
+    if missing:
+        raise MissingAPIKeyError(
+            f"缺少必需的 API Key: {', '.join(missing)}",
+            details={"missing": missing},
+        )
+
+    timeout_raw = raw_values.get("PPT_REQUEST_TIMEOUT_SECONDS", "").strip()
+    try:
+        request_timeout_seconds = float(timeout_raw) if timeout_raw else DEFAULT_REQUEST_TIMEOUT_SECONDS
+    except ValueError as exc:
+        raise InvalidEnvironmentError(
+            "PPT_REQUEST_TIMEOUT_SECONDS 必须是数字",
+            details={"env_var": "PPT_REQUEST_TIMEOUT_SECONDS", "value": timeout_raw},
+        ) from exc
+
+    return Settings(
+        deepseek_api_key=raw_values["DEEPSEEK_API_KEY"],
+        ofox_api_key=raw_values["OFOX_API_KEY"],
+        deepseek_base_url=raw_values.get("DEEPSEEK_BASE_URL") or DEFAULT_DEEPSEEK_BASE_URL,
+        ofox_base_url=raw_values.get("OFOX_BASE_URL") or DEFAULT_OFOX_BASE_URL,
+        text_model=raw_values.get("PPT_TEXT_MODEL") or DEFAULT_TEXT_MODEL,
+        image_model=raw_values.get("PPT_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL,
+        default_language=raw_values.get("PPT_DEFAULT_LANGUAGE") or DEFAULT_LANGUAGE,
+        default_aspect_ratio=raw_values.get("PPT_DEFAULT_ASPECT_RATIO") or DEFAULT_ASPECT_RATIO,
+        request_timeout_seconds=request_timeout_seconds,
+    )
+
+
+def settings_status(env_file: Optional[Path] = None) -> dict[str, Any]:
+    raw_values = read_settings_values(env_file)
+    missing = _missing_required_secret_env_vars(raw_values)
+    return {
+        "configured": not missing,
+        "missing": missing,
+        "present": {env_var: bool(raw_values.get(env_var)) for env_var in REQUIRED_SECRET_ENV_VARS},
+        "defaults": {
+            "deepseek_base_url": raw_values.get("DEEPSEEK_BASE_URL") or DEFAULT_DEEPSEEK_BASE_URL,
+            "ofox_base_url": raw_values.get("OFOX_BASE_URL") or DEFAULT_OFOX_BASE_URL,
+            "text_model": raw_values.get("PPT_TEXT_MODEL") or DEFAULT_TEXT_MODEL,
+            "image_model": raw_values.get("PPT_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL,
+            "default_language": raw_values.get("PPT_DEFAULT_LANGUAGE") or DEFAULT_LANGUAGE,
+            "default_aspect_ratio": raw_values.get("PPT_DEFAULT_ASPECT_RATIO") or DEFAULT_ASPECT_RATIO,
+        },
+    }
 
 
 def load_settings(env_file: Optional[Path] = None) -> Settings:
@@ -79,43 +159,15 @@ def load_settings(env_file: Optional[Path] = None) -> Settings:
         Settings 实例
 
     Raises:
-        WorkflowEnvironmentError: 缺少必需的 API Key
+        MissingAPIKeyError: 缺少必需的 API Key
     """
-    _load_dotenv(env_file)
-
-    deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
-    if not deepseek_api_key:
-        raise WorkflowEnvironmentError("DEEPSEEK_API_KEY 未设置")
-
-    ofox_api_key = os.environ.get("OFOX_API_KEY", "").strip()
-    if not ofox_api_key:
-        raise WorkflowEnvironmentError("OFOX_API_KEY 未设置")
-
-    deepseek_base_url = os.environ.get("DEEPSEEK_BASE_URL", "").strip() or "https://api.deepseek.com"
-    ofox_base_url = os.environ.get("OFOX_BASE_URL", "").strip() or "https://api.ofox.ai/v1"
-
-    text_model = os.environ.get("PPT_TEXT_MODEL", "").strip() or "deepseek-chat"
-    image_model = os.environ.get("PPT_IMAGE_MODEL", "").strip() or "volcengine/doubao-seedream-5.0-lite"
-    default_language = os.environ.get("PPT_DEFAULT_LANGUAGE", "").strip() or "zh-CN"
-    default_aspect_ratio = os.environ.get("PPT_DEFAULT_ASPECT_RATIO", "").strip() or "16:9"
-
-    timeout_raw = os.environ.get("PPT_REQUEST_TIMEOUT_SECONDS", "120.0").strip()
-    try:
-        request_timeout_seconds = float(timeout_raw) if timeout_raw else 120.0
-    except ValueError as exc:
-        raise WorkflowEnvironmentError("PPT_REQUEST_TIMEOUT_SECONDS 必须是数字") from exc
-
-    return Settings(
-        deepseek_api_key=deepseek_api_key,
-        ofox_api_key=ofox_api_key,
-        deepseek_base_url=deepseek_base_url,
-        ofox_base_url=ofox_base_url,
-        text_model=text_model,
-        image_model=image_model,
-        default_language=default_language,
-        default_aspect_ratio=default_aspect_ratio,
-        request_timeout_seconds=request_timeout_seconds,
-    )
+    return validate_settings(read_settings_values(env_file))
 
 
-__all__ = ["Settings", "load_settings"]
+__all__ = [
+    "Settings",
+    "load_settings",
+    "read_settings_values",
+    "settings_status",
+    "validate_settings",
+]

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 from collections.abc import Callable, Mapping, Sequence
@@ -79,12 +81,31 @@ def build_error_summary(
     }
 
 
-def print_json_summary(summary: Mapping[str, Any], *, stream: Any = sys.stdout) -> None:
-    print(json.dumps(summary, ensure_ascii=False, indent=2), file=stream)
+def print_json_summary(summary: Mapping[str, Any], *, stream: Any = None) -> None:
+    target = sys.stdout if stream is None else stream
+    print(json.dumps(summary, ensure_ascii=False, indent=2), file=target, flush=True)
 
 
-def print_error_message(error: Exception, *, stream: Any = sys.stderr) -> None:
-    print(f"{error.__class__.__name__}: {error}", file=stream)
+def print_error_message(error: Exception, *, stream: Any = None) -> None:
+    target = sys.stderr if stream is None else stream
+    print(f"{error.__class__.__name__}: {error}", file=target, flush=True)
+
+
+def print_stderr(message: str, *, stream: Any = None) -> None:
+    target = sys.stderr if stream is None else stream
+    print(message, file=target, flush=True)
+
+
+def _drain_captured_stdout(buffer: io.StringIO, *, stream: Any = None) -> None:
+    target = sys.stderr if stream is None else stream
+    captured = buffer.getvalue()
+    if not captured:
+        return
+    if captured.endswith("\n"):
+        target.write(captured)
+    else:
+        target.write(f"{captured}\n")
+    target.flush()
 
 
 def exit_code_for_error(error: Exception) -> int:
@@ -131,11 +152,14 @@ def run_cli(
 ) -> int:
     effective_parser = parser or add_common_args(argparse.ArgumentParser(prog=tool))
     args = effective_parser.parse_args(argv)
+    captured_stdout = io.StringIO()
 
     try:
-        result = handler(args)
+        with contextlib.redirect_stdout(captured_stdout):
+            result = handler(args)
         summary = normalize_result(tool, result, args=args)
         print_json_summary(summary)
+        _drain_captured_stdout(captured_stdout)
         return 0
     except PPTWorkflowError as exc:
         summary = build_error_summary(
@@ -145,6 +169,7 @@ def run_cli(
             project_dir=_coerce_string_path(getattr(args, "project_dir", None)),
         )
         print_json_summary(summary)
+        _drain_captured_stdout(captured_stdout)
         print_error_message(exc)
         return exit_code_for_error(exc)
     except Exception as exc:  # pragma: no cover - defensive fallback
@@ -155,5 +180,6 @@ def run_cli(
             project_dir=_coerce_string_path(getattr(args, "project_dir", None)),
         )
         print_json_summary(summary)
+        _drain_captured_stdout(captured_stdout)
         print_error_message(exc)
         return int(ExitCode.OUTPUT_VALIDATION_ERROR)

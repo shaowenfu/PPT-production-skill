@@ -8,16 +8,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from _bootstrap import bootstrap_project
+
+bootstrap_project(__file__)
 
 from pptflow.cli import run_cli
-from pptflow.errors import ProjectResolutionError
+from pptflow.paths import resolve_project_dir
 from pptflow.state_store import default_workflow_state, save_state
 
 TOOL_NAME = "project_init"
@@ -26,14 +24,10 @@ PROJECT_SUBDIRS = ["outline", "draft", "plan", "prompts", "assets", "deck", "exp
 
 
 def handle_init(args: argparse.Namespace) -> dict[str, Any]:
-    project_dir = Path(args.project_dir).expanduser().resolve()
+    project_dir = resolve_project_dir(args.project_dir, create=True)
     project_name = args.project_name or project_dir.name
 
-    if project_dir.exists() and not project_dir.is_dir():
-        raise ProjectResolutionError(f"Path exists but is not a directory: {project_dir}")
-
     # 创建目录结构
-    project_dir.mkdir(parents=True, exist_ok=True)
     for subdir in PROJECT_SUBDIRS:
         (project_dir / subdir).mkdir(exist_ok=True)
 
@@ -45,6 +39,7 @@ def handle_init(args: argparse.Namespace) -> dict[str, Any]:
         "project_id": project_dir.name,
         "project_dir": str(project_dir),
         "artifacts": ["state.json"],
+        "metrics": {"directories_initialized": len(PROJECT_SUBDIRS)},
     }
 
 

@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from .errors import ProjectResolutionError, StateStoreError
 from .json_io import read_json, write_json
-from .paths import ProjectPaths, find_repo_root
+from .paths import resolve_project_dir
 from .validators import (
     DEFAULT_ARTIFACT_KEYS,
     DEFAULT_STEP_KEYS,
@@ -67,12 +67,7 @@ def _state_file(project_dir: Path) -> Path:
 
 
 def _ensure_project_dir(project_dir: Path | str) -> Path:
-    resolved = Path(project_dir).expanduser().resolve()
-    if not resolved.exists():
-        raise ProjectResolutionError(f"project directory does not exist: {resolved}")
-    if not resolved.is_dir():
-        raise ProjectResolutionError(f"project directory is not a directory: {resolved}")
-    return resolved
+    return resolve_project_dir(project_dir, create=False)
 
 
 def load_state(project_dir: Path | str) -> dict[str, Any]:

@@ -12,21 +12,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import datetime
-from pathlib import Path
-from typing import Any, List
+from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from _bootstrap import bootstrap_project
+
+bootstrap_project(__file__)
 
 from openai import OpenAI
 
-from pptflow.cli import run_cli
+from pptflow.cli import print_stderr, run_cli
 from pptflow.config import load_settings
 from pptflow.errors import InputError, OutputValidationError
 from pptflow.json_io import read_json, write_json
+from pptflow.paths import resolve_project_dir
 from pptflow.schemas import SlideDraftDocument, SlidePlanDocument, PromptDocument, PromptItem
 from pptflow.state_store import append_transition, load_state, save_state, set_artifact
 
@@ -107,7 +106,7 @@ def _build_system_prompt() -> str:
 
 
 
-def _build_user_prompt(plan: SlidePlanDocument, draft_batch: List[dict[str, Any]]) -> str:
+def _build_user_prompt(plan: SlidePlanDocument, draft_batch: list[dict[str, Any]]) -> str:
     plan_overview = "\n".join([f"- {p.page_id}: {p.title} ({p.category})" for p in plan.pages])
     batch_detail = ""
     for d in draft_batch:
@@ -126,7 +125,7 @@ def _build_user_prompt(plan: SlidePlanDocument, draft_batch: List[dict[str, Any]
 
 
 def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
-    project_dir = Path(args.project_dir).expanduser().resolve()
+    project_dir = resolve_project_dir(args.project_dir, create=False)
     settings = load_settings()
     state = load_state(project_dir)
 
@@ -151,7 +150,9 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
         batch_slides = draft.slides[i:i+batch_size]
         draft_batch = [s.model_dump() for s in batch_slides]
 
-        print(f"使用 DeepSeek/{settings.text_model} 导演第 {i+1} 至 {i+len(batch_slides)} 页的视觉设计...")
+        print_stderr(
+            f"使用 DeepSeek/{settings.text_model} 导演第 {i + 1} 至 {i + len(batch_slides)} 页的视觉设计..."
+        )
 
         payload = _generate_json_text(
             client=client,
@@ -171,11 +172,13 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     write_json(prompt_file, prompt_doc.model_dump())
 
     # 5. 更新状态
+    previous_state = state["current_state"]
     state = set_artifact(state, "prompts", "prompts/prompts.json", exists=True)
     state["current_state"] = "AssetsGenerated"
+    state["last_completed_step"] = TOOL_NAME
     state = append_transition(state, {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "from_state": "DraftGenerated",
+        "from_state": previous_state,
         "to_state": "AssetsGenerated",
         "trigger": "tool_success",
         "step": "visual_prompt_generate",
@@ -183,7 +186,12 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     })
     save_state(project_dir, state)
 
-    return {"project_id": state["project_id"], "model": settings.text_model, "total_prompts": len(all_prompts)}
+    return {
+        "project_id": state["project_id"],
+        "artifacts": ["prompts/prompts.json"],
+        "metrics": {"total_prompts": len(all_prompts)},
+        "model": settings.text_model,
+    }
 
 
 def main() -> int:

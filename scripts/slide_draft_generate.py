@@ -12,14 +12,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+from _bootstrap import bootstrap_project
+
+bootstrap_project(__file__)
 
 from openai import OpenAI
 
@@ -27,7 +25,8 @@ from pptflow.cli import run_cli
 from pptflow.config import load_settings
 from pptflow.errors import InputError, OutputValidationError
 from pptflow.json_io import read_json, write_json
-from pptflow.schemas import SlideDraftDocument, SlideDraftSlide, SlidePlanDocument
+from pptflow.paths import resolve_project_dir
+from pptflow.schemas import SlideDraftDocument, SlidePlanDocument
 from pptflow.state_store import append_transition, load_state, save_state, set_artifact
 
 TOOL_NAME = "slide_draft_generate"
@@ -128,7 +127,7 @@ def _build_user_prompt(outline_text: str, plan_batch: list[dict[str, Any]], lang
 
 
 def handle_slide_draft_generate(args: argparse.Namespace) -> dict[str, Any]:
-    project_dir = Path(args.project_dir).expanduser().resolve()
+    project_dir = resolve_project_dir(args.project_dir, create=False)
     target_page_ids = [p.strip() for p in args.page_ids.split(",") if p.strip()]
 
     # 1. 加载设置与环境
@@ -154,7 +153,11 @@ def handle_slide_draft_generate(args: argparse.Namespace) -> dict[str, Any]:
     # 4. 准备批次数据
     plan_batch = [p.dict() for p in plan.pages if p.page_id in target_page_ids]
     if not plan_batch:
-        return {"ok": True, "message": "没有找到需要生成的 Page IDs"}
+        return {
+            "project_id": plan.project_id,
+            "warnings": [f"没有找到匹配的 Page IDs: {args.page_ids}"],
+            "metrics": {"pages_requested": len(target_page_ids), "pages_generated": 0},
+        }
 
     # 5. 调用 LLM
     sys_prompt = _build_system_prompt()
@@ -187,7 +190,7 @@ def handle_slide_draft_generate(args: argparse.Namespace) -> dict[str, Any]:
         write_json(draft_path, draft_doc.dict())
 
     # 7. 更新状态
-    set_artifact(state, "slide_draft", str(draft_path.relative_to(project_dir)))
+    state = set_artifact(state, "draft", str(draft_path.relative_to(project_dir)))
     state["current_state"] = "DraftGenerated"
     state = append_transition(state, {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -200,14 +203,16 @@ def handle_slide_draft_generate(args: argparse.Namespace) -> dict[str, Any]:
     save_state(project_dir, state)
 
     return {
-        "ok": True,
-        "tool": TOOL_NAME,
         "project_id": plan.project_id,
         "artifacts": ["draft/slide_draft.json"],
-        "metrics": {"pages_generated": len(target_page_ids)}
+        "metrics": {"pages_requested": len(target_page_ids), "pages_generated": len(draft_doc.slides)},
     }
 
 
-if __name__ == "__main__":
+def main() -> int:
     parser = _add_script_args(argparse.ArgumentParser(prog=TOOL_NAME))
-    run_cli(handle_slide_draft_generate, tool=TOOL_NAME, parser=parser)
+    return run_cli(handle_slide_draft_generate, tool=TOOL_NAME, parser=parser)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

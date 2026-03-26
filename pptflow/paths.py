@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .validators import ProjectResolutionError, normalize_project_id
+from .errors import InputError, ProjectResolutionError
+from .validators import normalize_project_id
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,54 @@ def _as_path(value: Path | str | None) -> Path:
     if value is None:
         return Path.cwd()
     return Path(value).expanduser()
+
+
+def resolve_project_dir(project_dir: Path | str, *, create: bool = False) -> Path:
+    resolved = Path(project_dir).expanduser().resolve()
+    normalize_project_id(resolved.name)
+    if resolved.exists():
+        if not resolved.is_dir():
+            raise ProjectResolutionError(f"project directory is not a directory: {resolved}")
+        return resolved
+    if create:
+        resolved.mkdir(parents=True, exist_ok=True)
+        return resolved
+    raise ProjectResolutionError(f"project directory does not exist: {resolved}")
+
+
+def resolve_project_dir_input(
+    *,
+    project_dir: Path | str | None = None,
+    project_id: str | None = None,
+    repo_root: Path | str | None = None,
+    ppt_root: Path | str | None = None,
+    create_ppt_root: bool = False,
+    create_project_dir: bool = False,
+) -> Path:
+    if project_dir is not None:
+        resolved_project_dir = resolve_project_dir(project_dir, create=create_project_dir)
+        if project_id is not None:
+            normalized_project_id = normalize_project_id(project_id)
+            if resolved_project_dir.name != normalized_project_id:
+                raise InputError(
+                    "project_dir 与 project_id 不一致",
+                    details={
+                        "project_dir": str(resolved_project_dir),
+                        "project_id": normalized_project_id,
+                    },
+                )
+        return resolved_project_dir
+
+    if project_id is None:
+        raise InputError("必须提供 project_dir 或 project_id")
+
+    return resolve_project_paths(
+        project_id,
+        repo_root=repo_root,
+        ppt_root=ppt_root,
+        create_ppt_root=create_ppt_root,
+        create_project_dir=create_project_dir,
+    ).project_dir
 
 
 def find_repo_root(start: Path | str | None = None) -> Path:
@@ -159,4 +208,3 @@ def resolve_project_paths(
         project_id=normalized_project_id,
         project_dir=project_dir,
     )
-
