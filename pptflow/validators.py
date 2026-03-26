@@ -40,7 +40,7 @@ DEFAULT_STEP_KEYS = (
     "outline_ingest",
     "slide_draft_generate",
     "slide_plan_generate",
-    "visual_prompt_generate",
+    "visual_prompt_design",
     "visual_asset_generate",
     "ppt_assemble",
     "final_approve",

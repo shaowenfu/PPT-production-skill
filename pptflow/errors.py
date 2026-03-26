@@ -89,6 +89,10 @@ class OutputValidationError(PPTWorkflowError):
     error_code = "OUTPUT_VALIDATION_ERROR"
 
 
+class InvalidJSONOutputError(OutputValidationError):
+    error_code = "INVALID_JSON_OUTPUT"
+
+
 EXIT_CODE_BY_EXCEPTION: Mapping[Type[BaseException], ExitCode] = {
     InputError: ExitCode.INPUT_ERROR,
     ProjectResolutionError: ExitCode.PROJECT_RESOLUTION_ERROR,
@@ -100,6 +104,7 @@ EXIT_CODE_BY_EXCEPTION: Mapping[Type[BaseException], ExitCode] = {
     UpstreamTimeoutError: ExitCode.UPSTREAM_SERVICE_ERROR,
     UpstreamBadResponseError: ExitCode.UPSTREAM_SERVICE_ERROR,
     UpstreamServiceError: ExitCode.UPSTREAM_SERVICE_ERROR,
+    InvalidJSONOutputError: ExitCode.OUTPUT_VALIDATION_ERROR,
     OutputValidationError: ExitCode.OUTPUT_VALIDATION_ERROR,
     PPTWorkflowError: ExitCode.OUTPUT_VALIDATION_ERROR,
 }
@@ -132,6 +137,7 @@ __all__ = [
     "EXIT_CODE_BY_EXCEPTION",
     "ExitCode",
     "InvalidEnvironmentError",
+    "InvalidJSONOutputError",
     "InputError",
     "MissingAPIKeyError",
     "NeedsConfigError",

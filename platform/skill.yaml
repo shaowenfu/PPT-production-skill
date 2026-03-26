@@ -1,0 +1,17 @@
+name: agent-ppt-production
+version: 0.1.0
+description: Thin skill entry for the Agent-PPT-Production workflow.
+entrypoint: ./skill.sh
+working_directory: .
+default_step: project_init
+fixed_aspect_ratio: "16:9"
+image_size: "1792x1024"
+required_env:
+  - DEEPSEEK_API_KEY
+  - OFOX_API_KEY
+steps:
+  - project_init
+  - slide_draft_generate
+  - visual_prompt_design
+  - visual_asset_generate
+  - ppt_assemble

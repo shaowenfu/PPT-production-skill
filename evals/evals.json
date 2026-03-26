@@ -1,0 +1,23 @@
+{
+  "skill_name": "ppt-production-expert",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "在这个仓库里为一个新项目初始化工作区，项目 ID 用 ai_telecom_01，后续我们要做一份通信行业培训 PPT。",
+      "expected_output": "调用项目初始化步骤，创建标准目录和 state.json，并告知下一步需要准备 outline。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我已经确定主题是《运营商 AI 中台能力建设》。请直接完成 outline 和 25 页 plan.json，B 类页面控制在 20%-40%，不要开始生成图片。",
+      "expected_output": "直接编写 outline/outline.md 和 plan/plan.json，结构合理，符合仓库 schema，不误调用图像生成。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "继续 PPT/demo 项目，先做 visual prompt design，给我看 prompt 概要，等我确认后再继续生成图片。",
+      "expected_output": "执行 visual prompt design，更新 prompts/prompts.json，并在完成后停下来等待用户确认，不直接进入资产生成。",
+      "files": []
+    }
+  ]
+}

@@ -6,7 +6,7 @@ to assemble the final PowerPoint presentation by inserting each generated
 image as a full-page slide.
 
 Usage:
-    python scripts/ppt_assemble.py --project-dir PPT/03 [--output-json]
+    python scripts/ppt_assemble.py --project-dir PPT/03
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ TOOL_NAME = "ppt_assemble"
 
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", required=True, help="项目目录")
-    parser.add_argument("--output-json", action="store_true", default=False, help="结果输出到 stdout")
     return parser
 
 def handle_assemble(args: argparse.Namespace) -> dict[str, Any]:

@@ -10,11 +10,11 @@ from typing import Any
 
 from .errors import (
     ExitCode,
+    OutputValidationError,
     PPTWorkflowError,
     error_payload_for_exception,
     exit_code_for_exception,
 )
-from .validators import OutputValidationError
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -132,7 +132,7 @@ def normalize_result(
     if project_dir is None and args is not None:
         project_dir = getattr(args, "project_dir", None)
 
-    return build_success_summary(
+    summary = build_success_summary(
         tool,
         project_id=_coerce_string_path(project_id),
         project_dir=_coerce_string_path(project_dir),
@@ -141,6 +141,7 @@ def normalize_result(
         warnings=payload.pop("warnings", None),
         extra=payload,
     )
+    return summary
 
 
 def run_cli(

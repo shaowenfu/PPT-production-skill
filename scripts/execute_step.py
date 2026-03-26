@@ -23,27 +23,20 @@ from pptflow.errors import InputError, OutputValidationError, exit_code_for_exce
 from pptflow.paths import resolve_project_dir_input
 
 TOOL_NAME = "execute_step"
-
+STEP_SCRIPTS = {
+    "project_init": "scripts/project_init.py",
+    "slide_draft_generate": "scripts/slide_draft_generate.py",
+    "visual_prompt_design": "scripts/visual_prompt_design.py",
+    "visual_asset_generate": "scripts/visual_asset_generate.py",
+    "ppt_assemble": "scripts/ppt_assemble.py",
+}
 STEP_ALIASES = {
     "init": "project_init",
-    "project_init": "project_init",
     "draft": "slide_draft_generate",
-    "slide_draft_generate": "slide_draft_generate",
     "prompt": "visual_prompt_design",
     "prompts": "visual_prompt_design",
-    "visual_prompt_design": "visual_prompt_design",
     "assets": "visual_asset_generate",
-    "visual_asset_generate": "visual_asset_generate",
     "assemble": "ppt_assemble",
-    "ppt_assemble": "ppt_assemble",
-}
-
-STEP_SCRIPTS = {
-    "project_init": "project_init.py",
-    "slide_draft_generate": "slide_draft_generate.py",
-    "visual_prompt_design": "visual_prompt_design.py",
-    "visual_asset_generate": "visual_asset_generate.py",
-    "ppt_assemble": "ppt_assemble.py",
 }
 
 
@@ -64,19 +57,18 @@ def _canonical_step(step_name: str) -> str:
     candidate = step_name.strip()
     if not candidate:
         raise InputError("step 不能为空")
-    canonical = STEP_ALIASES.get(candidate)
-    if canonical is None:
+    resolved = STEP_ALIASES.get(candidate, candidate)
+    if resolved not in STEP_SCRIPTS:
         raise InputError(
             f"不支持的 step: {candidate}",
             details={"step": candidate, "supported_steps": sorted(STEP_SCRIPTS)},
         )
-    return canonical
+    return resolved
 
 
 def _build_step_command(args: argparse.Namespace) -> list[str]:
     step = _canonical_step(args.step)
-    script_name = STEP_SCRIPTS[step]
-    script_path = REPO_ROOT / "scripts" / script_name
+    script_path = REPO_ROOT / STEP_SCRIPTS[step]
     command = [sys.executable, str(script_path)]
 
     if step == "project_init":

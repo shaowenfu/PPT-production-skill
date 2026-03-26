@@ -5,13 +5,12 @@ This is Program 3 in the PPT workflow. It reads the outline.md and plan.json
 and generates content for specific page IDs using DeepSeek LLM.
 
 Usage:
-    python scripts/slide_draft_generate.py --project-dir PPT/03 --page-ids p1,p2,p3 [--output-json]
+    python scripts/slide_draft_generate.py --project-dir PPT/03 --page-ids p1,p2,p3
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime
 from typing import Any
 
@@ -25,6 +24,7 @@ from pptflow.cli import run_cli
 from pptflow.config import load_settings
 from pptflow.errors import InputError, OutputValidationError
 from pptflow.json_io import read_json, write_json
+from pptflow.llm_json import parse_llm_json
 from pptflow.paths import resolve_project_dir
 from pptflow.schemas import SlideDraftDocument, SlidePlanDocument
 from pptflow.state_store import append_transition, load_state, save_state, set_artifact
@@ -54,19 +54,12 @@ def _generate_json_text(
         raise InputError(f"LLM 调用失败: {exc}") from exc
 
     content = response.choices[0].message.content
-    try:
-        payload = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise OutputValidationError("模型响应不是有效的 JSON") from exc
-    if not isinstance(payload, dict):
-        raise OutputValidationError("模型响应 JSON 必须是对象")
-    return payload
+    return parse_llm_json(content, source="slide_draft_generate 模型响应")
 
 
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", required=True, help="项目目录")
     parser.add_argument("--page-ids", required=True, help="本批次要生成的 Page IDs (逗号分隔)")
-    parser.add_argument("--output-json", action="store_true", default=False, help="结果输出到 stdout")
     return parser
 
 

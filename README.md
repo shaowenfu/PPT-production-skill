@@ -11,11 +11,12 @@
 
 ## 🌟 核心特性
 
-- **环境自愈 (Self-Healing)**：内置环境检查机制，支持 Agent 自动创建 `venv` 并同步依赖。
+- **显式环境约束 (Explicit Environment Contract)**：要求显式使用 `venv`，缺少环境时快速失败，不做静默安装。
 - **状态机驱动 (State-Driven)**：每个项目拥有独立的 `state.json` 存盘点，支持流程的断点续传与精准回退。
 - **视觉导演系统 (Visual Director)**：通过 A/B 类页面划分与深度提示词工程（Prompt Engineering），确保生成图片无 AI 水印、无文字污染。
 - **原子化脚本 (Atomic Scripts)**：流程解耦为 7 个独立可验证的 Python 脚本，易于 Agent 调用与人工调试。
-- **生产级 Skill 指南**：在 `docs/PRODUCTION_PPT_SKILL.md` 中定义了 Agent 执行的标准 SOP。
+- **平台薄入口 (Thin Skill Entry)**：通过 `skill.sh` 和 `scripts/execute_step.py` 对外暴露稳定入口，不把业务流程封成黑盒。
+- **生产级 Skill 指南**：根目录 `SKILL.md` 定义了 Agent 执行的标准 SOP。
 
 ---
 
@@ -37,7 +38,8 @@
 
 ```text
 .
-├── docs/                 # 核心规范：PRODUCTION_PPT_SKILL.md、设计契约
+├── docs/                 # 设计契约与补充文档
+├── SKILL.md              # 仓库根技能入口
 ├── pptflow/              # 核心库：Schema 定义、状态管理、PPT 构建引擎
 ├── scripts/              # 7 个原子化执行脚本
 ├── PPT/                  # 项目工作区（Workspace）：存放每个 PPT 的中间产物
@@ -58,7 +60,7 @@ cd agent-PPT-production
 ### 2. 环境配置
 建议使用虚拟环境以保证依赖隔离：
 ```bash
-python3 -m venv venv
+python -m venv venv
 source venv/bin/activate  # Linux/macOS
 # .\venv\Scripts\activate  # Windows
 pip install -r requirements.txt
@@ -69,12 +71,20 @@ pip install -r requirements.txt
 - `DEEPSEEK_API_KEY`: 用于文本生成。
 - `OFOX_API_KEY`: 用于图像生成（火山引擎 Doubao）。
 
+### 4. 平台入口
+固定 `aspect ratio` 为 `16:9`，图像尺寸固定为 `1792x1024`。
+
+```bash
+./skill.sh --step init --project-dir PPT/demo
+./skill.sh --step draft --project-id demo --page-ids p1,p2
+```
+
 ---
 
 ## 🤖 对 Agent 的指引
 
 如果你是一个正在阅读本仓库的 Agent：
-1.  **阅读 Skill**：请立即阅读 `docs/PRODUCTION_PPT_SKILL.md`，这是你执行任务的最高准则。
+1.  **阅读 Skill**：请立即阅读 `SKILL.md`，这是你执行任务的最高准则。
 2.  **激活环境**：在执行任何脚本前，务必使用 `source venv/bin/activate`。
 3.  **状态先行**：每一步执行后，请检查 `state.json` 是否正确更新，这是你“存盘”的唯一凭证。
 

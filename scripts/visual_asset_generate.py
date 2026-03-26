@@ -43,7 +43,6 @@ TOOL_NAME = "visual_asset_generate"
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", required=True, help="项目目录")
     parser.add_argument("--target-pages", default=None, help="目标页面ID (逗号分隔)")
-    parser.add_argument("--output-json", action="store_true", default=False, help="结果输出到 stdout")
     parser.add_argument("--overwrite", action="store_true", default=False, help="覆盖现有图片")
     return parser
 

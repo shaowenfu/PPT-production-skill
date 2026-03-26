@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime
 from typing import Any
 
@@ -25,6 +24,7 @@ from pptflow.cli import print_stderr, run_cli
 from pptflow.config import load_settings
 from pptflow.errors import InputError, OutputValidationError
 from pptflow.json_io import read_json, write_json
+from pptflow.llm_json import parse_llm_json
 from pptflow.paths import resolve_project_dir
 from pptflow.schemas import SlideDraftDocument, SlidePlanDocument, PromptDocument, PromptItem
 from pptflow.state_store import append_transition, load_state, save_state, set_artifact
@@ -54,11 +54,7 @@ def _generate_json_text(
         raise InputError(f"LLM 调用失败: {exc}") from exc
 
     content = response.choices[0].message.content
-    try:
-        payload = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise OutputValidationError("模型响应不是有效的 JSON") from exc
-    return payload
+    return parse_llm_json(content, source="visual_prompt_design 模型响应")
 
 
 def _build_system_prompt() -> str:
@@ -181,7 +177,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
         "from_state": previous_state,
         "to_state": "AssetsGenerated",
         "trigger": "tool_success",
-        "step": "visual_prompt_generate",
+        "step": TOOL_NAME,
         "note": f"Generated {len(all_prompts)} visual prompts"
     })
     save_state(project_dir, state)
