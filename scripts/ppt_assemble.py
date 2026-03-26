@@ -97,7 +97,7 @@ def handle_assemble(args: argparse.Namespace) -> dict[str, Any]:
         
         # 填充演讲者备注（辅助演示）
         if page.page_id in draft_map:
-            add_speaker_notes(slide, draft_map[page.page_id].speaker_note)
+            add_speaker_notes(slide, draft_map[page.page_id].content)
 
     # 5. 保存结果
     deck_dir = project_dir / "deck"

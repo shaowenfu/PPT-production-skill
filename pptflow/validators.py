@@ -56,15 +56,6 @@ DEFAULT_ARTIFACT_KEYS = (
     "export_final",
 )
 
-DEFAULT_TARGET_SCOPES = {
-    "outline",
-    "draft",
-    "plan",
-    "asset",
-    "assembly",
-    "final",
-}
-
 
 def normalize_project_id(project_id: str) -> str:
     if not isinstance(project_id, str):
@@ -92,17 +83,6 @@ def validate_artifact_name(name: str) -> str:
         raise StateStoreError("artifact name cannot contain path separators or traversal markers")
     if not ARTIFACT_NAME_PATTERN.fullmatch(value):
         raise StateStoreError("artifact name contains invalid characters")
-    return value
-
-
-def validate_step_name(name: str) -> str:
-    if not isinstance(name, str):
-        raise StateStoreError("step name must be a string")
-    value = name.strip()
-    if not value:
-        raise StateStoreError("step name cannot be empty")
-    if value not in DEFAULT_STEP_KEYS:
-        raise StateStoreError(f"step name is invalid: {value}")
     return value
 
 
@@ -151,52 +131,6 @@ def validate_artifact_record(record: Any, *, artifact_name: str | None = None) -
     result["path"] = path
     result["exists"] = exists
     result["updated_at"] = updated_at
-    return result
-
-
-def validate_feedback_record(record: Any) -> dict[str, Any]:
-    if not isinstance(record, Mapping):
-        raise StateStoreError("feedback record must be a mapping")
-
-    required = {"feedback_id", "timestamp", "from_state", "target_scope", "target_pages", "summary", "action"}
-    missing = sorted(required - set(record))
-    if missing:
-        raise StateStoreError(f"feedback record is missing fields: {', '.join(missing)}")
-
-    feedback_id = record["feedback_id"]
-    if not isinstance(feedback_id, str) or not feedback_id.strip():
-        raise StateStoreError("feedback_id must be a non-empty string")
-
-    timestamp = validate_iso_datetime(record["timestamp"], field_name="feedback timestamp")
-
-    from_state = record["from_state"]
-    if not isinstance(from_state, str) or from_state not in ALLOWED_STATES:
-        raise StateStoreError("feedback from_state is invalid")
-
-    target_scope = record["target_scope"]
-    if not isinstance(target_scope, str) or target_scope not in DEFAULT_TARGET_SCOPES:
-        raise StateStoreError("feedback target_scope is invalid")
-
-    target_pages = record["target_pages"]
-    if not isinstance(target_pages, list) or any(not isinstance(item, str) or not item.strip() for item in target_pages):
-        raise StateStoreError("feedback target_pages must be a list of non-empty strings")
-
-    summary = record["summary"]
-    if not isinstance(summary, str) or not summary.strip():
-        raise StateStoreError("feedback summary must be a non-empty string")
-
-    action = record["action"]
-    if not isinstance(action, str) or not action.strip():
-        raise StateStoreError("feedback action must be a non-empty string")
-
-    result = dict(record)
-    result["feedback_id"] = feedback_id.strip()
-    result["timestamp"] = timestamp
-    result["from_state"] = from_state
-    result["target_scope"] = target_scope
-    result["target_pages"] = [item.strip() for item in target_pages]
-    result["summary"] = summary.strip()
-    result["action"] = action.strip()
     return result
 
 
@@ -284,7 +218,7 @@ def validate_workflow_state(state: Any) -> dict[str, Any]:
     feedback_history = normalized["feedback_history"]
     if not isinstance(feedback_history, list):
         raise StateStoreError("feedback_history must be a list")
-    normalized["feedback_history"] = [validate_feedback_record(item) for item in feedback_history]
+    normalized["feedback_history"] = list(feedback_history)
 
     transition_history = normalized["transition_history"]
     if not isinstance(transition_history, list):
@@ -294,15 +228,7 @@ def validate_workflow_state(state: Any) -> dict[str, Any]:
     retry_count = normalized["retry_count"]
     if not isinstance(retry_count, Mapping):
         raise StateStoreError("retry_count must be a mapping")
-    normalized_retry_count: dict[str, int] = {}
-    for name, value in retry_count.items():
-        key = validate_artifact_name(name) if isinstance(name, str) else None
-        if key is None:
-            raise StateStoreError("retry_count keys must be strings")
-        if not isinstance(value, int) or value < 0:
-            raise StateStoreError("retry_count values must be non-negative integers")
-        normalized_retry_count[key] = value
-    normalized["retry_count"] = normalized_retry_count
+    normalized["retry_count"] = dict(retry_count)
 
     normalized["updated_at"] = validate_iso_datetime(normalized["updated_at"], field_name="updated_at")
     normalized["created_at"] = validate_iso_datetime(normalized["created_at"], field_name="created_at")
@@ -340,7 +266,6 @@ __all__ = [
     "ALLOWED_STATUS",
     "DEFAULT_ARTIFACT_KEYS",
     "DEFAULT_STEP_KEYS",
-    "DEFAULT_TARGET_SCOPES",
     "InputError",
     "OutputValidationError",
     "PPTWorkflowError",
@@ -349,9 +274,7 @@ __all__ = [
     "normalize_project_id",
     "validate_artifact_name",
     "validate_artifact_record",
-    "validate_feedback_record",
     "validate_iso_datetime",
-    "validate_step_name",
     "validate_transition_record",
     "validate_workflow_state",
 ]

@@ -1,44 +1,37 @@
 #!/usr/bin/env python
-"""Generate visual assets using various image generation models.
+"""Generate visual assets using Ofox/Doubao image generation model.
 
 This is Program 6 in the PPT workflow. It reads prompts from prompts.json,
-calls image generation API to generate full-slide images, and creates an asset manifest.
-
-Supported models:
-    - gemini: Google Gemini (gemini-3.1-flash-image-preview)
-    - doubao: 火山引擎 Doubao (volcengine/doubao-seedream-5.0-lite)
+calls Ofox API to generate full-slide images, and creates an asset manifest.
 
 Usage:
-    python scripts/visual_asset_generate.py --project-dir PPT/03 [--target-pages p1,p2] [--model gemini|doubao]
+    python scripts/visual_asset_generate.py --project-dir PPT/03 [--target-pages p1,p2] [--overwrite]
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-import json
-import os
 import sys
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from google import genai
 from openai import OpenAI
 from PIL import Image
 
 from pptflow.cli import run_cli
-from pptflow.errors import InputError, UpstreamServiceError
+from pptflow.config import load_settings
+from pptflow.errors import InputError
 from pptflow.json_io import read_json, write_json
 from pptflow.schemas import AssetItem, AssetManifest, PromptDocument
 from pptflow.state_store import (
     append_transition,
-    assert_state_has_artifact,
     load_state,
     save_state,
     set_artifact,
@@ -46,66 +39,25 @@ from pptflow.state_store import (
 
 TOOL_NAME = "visual_asset_generate"
 
-# 支持的模型类型
-ImageModel = Literal["gemini", "doubao"]
-
-# 模型配置
-MODEL_CONFIG = {
-    "gemini": {
-        "provider": "google",
-        "model_name": "gemini-3.1-flash-image-preview",
-        "env_key": "GOOGLE_API_KEY",
-    },
-    "doubao": {
-        "provider": "volcengine",
-        "model_name": "volcengine/doubao-seedream-5.0-lite",
-        "env_key": "OFOX_API_KEY",
-        "base_url": "https://api.ofox.ai/v1",
-    },
-}
 
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", required=True, help="项目目录")
     parser.add_argument("--target-pages", default=None, help="目标页面ID (逗号分隔)")
     parser.add_argument("--output-json", action="store_true", default=False, help="结果输出到 stdout")
     parser.add_argument("--overwrite", action="store_true", default=False, help="覆盖现有图片")
-    parser.add_argument(
-        "--model",
-        choices=["gemini", "doubao"],
-        default="gemini",
-        help="图像生成模型: gemini (Google Gemini) 或 doubao (火山引擎豆包)"
-    )
     return parser
 
-def _generate_with_gemini(client: genai.Client, prompt: str, output_path: Path, model_config: dict) -> tuple[bool, dict | None]:
-    """使用 Google Gemini 生成图像"""
-    try:
-        response = client.models.generate_content(
-            model=model_config["model_name"],
-            contents=[prompt],
-        )
 
-        for part in response.parts:
-            if part.inline_data is not None:
-                img = part.as_image()
-                img.save(output_path)
-
-                # 获取图片实际尺寸
-                with Image.open(output_path) as pil_img:
-                    width, height = pil_img.size
-
-                return True, {"width": width, "height": height}
-
-        return False, None
-    except Exception as e:
-        raise e
-
-
-def _generate_with_doubao(client: OpenAI, prompt: str, output_path: Path, model_config: dict) -> tuple[bool, dict | None]:
-    """使用火山引擎 Doubao 生成图像"""
+def _generate_image(
+    client: OpenAI,
+    model: str,
+    prompt: str,
+    output_path: Path,
+) -> tuple[bool, dict | None]:
+    """统一的图像生成函数（仅 Doubao）"""
     try:
         response = client.images.generate(
-            model=model_config["model_name"],
+            model=model,
             prompt=prompt,
             size="1792x1024",
         )
@@ -136,26 +88,17 @@ def _generate_with_doubao(client: OpenAI, prompt: str, output_path: Path, model_
 def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
     project_dir = Path(args.project_dir).expanduser().resolve()
 
-    # 1. 获取模型配置
-    model_choice: ImageModel = args.model
-    model_config = MODEL_CONFIG[model_choice]
-
-    # 2. 验证环境与 API Key
-    api_key = os.getenv(model_config["env_key"])
-    if not api_key:
-        raise InputError(f"环境变量 {model_config['env_key']} 未设置")
-
-    # 初始化客户端
-    if model_choice == "gemini":
-        client = genai.Client(api_key=api_key)
-    elif model_choice == "doubao":
-        client = OpenAI(
-            base_url=model_config["base_url"],
-            api_key=api_key,
-        )
-
-    # 3. 加载状态与提示词
+    # 1. 加载设置与环境
+    settings = load_settings()
     state = load_state(project_dir)
+
+    # 2. 初始化 Ofox 客户端
+    client = OpenAI(
+        base_url=settings.ofox_base_url,
+        api_key=settings.ofox_api_key,
+    )
+
+    # 3. 加载提示词
     prompts_path = project_dir / "prompts" / "prompts.json"
     if not prompts_path.exists():
         raise InputError("提示词文件缺失，请先执行生成提示词步骤")
@@ -196,21 +139,16 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
                     page_id=item.page_id,
                     file_path=f"assets/{item.page_id}.png",
                     width=1024, height=1024,  # 默认参考值
-                    provider=model_config["provider"],
-                    model=model_config["model_name"]
+                    provider="volcengine",
+                    model=settings.image_model
                 )
             print(f"跳过已存在的页面: {item.page_id}")
             continue
 
         try:
-            print(f"正在为页面 {item.page_id} 生成图像 ({model_config['provider']}/{model_config['model_name']})...")
+            print(f"正在为页面 {item.page_id} 生成图像 ({settings.image_model})...")
 
-            if model_choice == "gemini":
-                success, dims = _generate_with_gemini(client, item.prompt, output_path, model_config)
-            elif model_choice == "doubao":
-                success, dims = _generate_with_doubao(client, item.prompt, output_path, model_config)
-            else:
-                raise InputError(f"不支持的模型: {model_choice}")
+            success, dims = _generate_image(client, settings.image_model, item.prompt, output_path)
 
             if success and dims:
                 generated_items_dict[item.page_id] = AssetItem(
@@ -218,8 +156,8 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
                     file_path=f"assets/{item.page_id}.png",
                     width=dims["width"],
                     height=dims["height"],
-                    provider=model_config["provider"],
-                    model=model_config["model_name"]
+                    provider="volcengine",
+                    model=settings.image_model
                 )
             else:
                 failed_pages.append({"page_id": item.page_id, "error": "API response contained no image data"})
@@ -244,22 +182,24 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
         "to_state": "AssetsGenerated",
         "trigger": "tool_success",
         "step": TOOL_NAME,
-        "note": f"{model_config['provider']} ({model_config['model_name']}) generated {len(final_items)} total images."
+        "note": f"Ofox ({settings.image_model}) generated {len(final_items)} total images."
     })
     save_state(project_dir, state)
 
     return {
         "project_id": state["project_id"],
-        "model": model_choice,
+        "model": settings.image_model,
         "images_generated": len(final_items),
         "failed_pages": failed_pages,
         "artifacts": ["assets/manifest.json"]
     }
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog=TOOL_NAME)
     _add_script_args(parser)
     return run_cli(handle_generate, tool=TOOL_NAME, parser=parser)
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -12,7 +12,6 @@ from .validators import (
     DEFAULT_STEP_KEYS,
     normalize_project_id,
     validate_artifact_name,
-    validate_step_name,
     validate_workflow_state,
 )
 
@@ -112,16 +111,6 @@ def save_state(project_dir: Path | str, state: Mapping[str, Any]) -> dict[str, A
     return normalized_state
 
 
-def ensure_state_file(project_dir: Path | str, *, project_name: str | None = None) -> dict[str, Any]:
-    resolved_project_dir = _ensure_project_dir(project_dir)
-    state_path = _state_file(resolved_project_dir)
-    if state_path.exists():
-        return load_state(resolved_project_dir)
-    state = default_workflow_state(resolved_project_dir.name, project_name=project_name)
-    write_json(state_path, state)
-    return validate_workflow_state(state)
-
-
 def assert_state_has_artifact(state: Mapping[str, Any], artifact_name: str) -> dict[str, Any]:
     normalized_state = validate_workflow_state(state)
     key = validate_artifact_name(artifact_name)
@@ -159,16 +148,6 @@ def set_artifact(
     return validate_workflow_state(normalized_state)
 
 
-def append_feedback(state: Mapping[str, Any], feedback_record: Mapping[str, Any]) -> dict[str, Any]:
-    from .validators import validate_feedback_record
-
-    normalized_state = validate_workflow_state(state)
-    normalized_state = dict(normalized_state)
-    normalized_state["feedback_history"] = list(normalized_state["feedback_history"]) + [validate_feedback_record(feedback_record)]
-    normalized_state["updated_at"] = _now_iso()
-    return validate_workflow_state(normalized_state)
-
-
 def append_transition(state: Mapping[str, Any], transition_record: Mapping[str, Any]) -> dict[str, Any]:
     from .validators import validate_transition_record
 
@@ -179,27 +158,3 @@ def append_transition(state: Mapping[str, Any], transition_record: Mapping[str, 
     ]
     normalized_state["updated_at"] = _now_iso()
     return validate_workflow_state(normalized_state)
-
-
-def increment_retry(state: Mapping[str, Any], step_name: str) -> dict[str, Any]:
-    normalized_state = validate_workflow_state(state)
-    key = validate_step_name(step_name)
-    normalized_state = dict(normalized_state)
-    retry_count = dict(normalized_state["retry_count"])
-    retry_count[key] = int(retry_count.get(key, 0)) + 1
-    normalized_state["retry_count"] = retry_count
-    normalized_state["updated_at"] = _now_iso()
-    return validate_workflow_state(normalized_state)
-
-
-def build_project_paths(project_dir: Path | str) -> ProjectPaths:
-    resolved_project_dir = _ensure_project_dir(project_dir)
-    project_id = normalize_project_id(resolved_project_dir.name)
-    ppt_root = resolved_project_dir.parent
-    repo_root = find_repo_root(resolved_project_dir)
-    return ProjectPaths(
-        repo_root=repo_root,
-        ppt_root=ppt_root,
-        project_id=project_id,
-        project_dir=resolved_project_dir,
-    )

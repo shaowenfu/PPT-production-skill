@@ -1,34 +1,29 @@
-"""Configuration loading for the PPT workflow toolchain."""
+"""Configuration loading for the PPT workflow toolchain.
+
+简化配置：
+- 文本生成：统一使用 DeepSeek (deepseek-chat)
+- 图像生成：统一使用 Ofox/Doubao (volcengine/doubao-seedream-5.0-lite)
+"""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Optional
 
 from .errors import EnvironmentError as WorkflowEnvironmentError
 
 
-_CONFIG_DIR = Path(__file__).resolve().parent
+def _load_dotenv(env_file: Optional[Path] = None) -> None:
+    """简单的 .env 文件加载，直接更新 os.environ"""
+    if env_file is None:
+        env_file = Path(__file__).resolve().parent.parent / ".env"
 
+    if not env_file.exists():
+        return
 
-def _candidate_env_files(explicit: Optional[Path]) -> list[Path]:
-    candidates: list[Path] = []
-    repo_env = _CONFIG_DIR.parent / ".env"
-    if repo_env not in candidates:
-        candidates.append(repo_env)
-    cwd_env = Path.cwd() / ".env"
-    if cwd_env not in candidates:
-        candidates.append(cwd_env)
-    if explicit is not None and explicit not in candidates:
-        candidates.append(explicit)
-    return candidates
-
-
-def _parse_env_file(path: Path) -> Dict[str, str]:
-    values: Dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -41,153 +36,85 @@ def _parse_env_file(path: Path) -> Dict[str, str]:
         value = value.strip()
         if value and value[0] == value[-1] and value[0] in {'"', "'"}:
             value = value[1:-1]
-        values[key] = value
-    return values
-
-
-def _load_env_files(explicit: Optional[Path]) -> Dict[str, str]:
-    merged: Dict[str, str] = {}
-    for path in _candidate_env_files(explicit):
-        if path.exists() and path.is_file():
-            merged.update(_parse_env_file(path))
-    return merged
-
-
-def _pick_setting(
-    env: Dict[str, str],
-    names: Iterable[str],
-    default: Optional[str] = None,
-) -> Optional[str]:
-    for name in names:
-        if name in os.environ and os.environ[name] != "":
-            return os.environ[name]
-    for name in names:
-        if name in env and env[name] != "":
-            return env[name]
-    return default
-
-
-def _normalize_base_url(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    cleaned = value.strip()
-    return cleaned or None
+        # 仅在环境变量未设置时才覆盖
+        if key not in os.environ or os.environ[key] == "":
+            os.environ[key] = value
 
 
 @dataclass(frozen=True)
 class Settings:
-    openai_api_key: str
-    openai_base_url: Optional[str] = None
-    text_model: str = "gemini-3-flash-preview"
-    planning_model: Optional[str] = None
-    prompt_model: Optional[str] = None
-    image_model: str = "gemini-3.1-flash-image-preview"
+    """PPT 工作流配置
+
+    必需：
+        deepseek_api_key: DeepSeek API Key（用于文本生成）
+        ofox_api_key: Ofox API Key（用于图像生成）
+
+    可选：
+        deepseek_base_url: DeepSeek API 地址
+        ofox_base_url: Ofox API 地址
+        text_model: 文本生成模型名称
+        image_model: 图像生成模型名称
+        default_language: 默认语言
+        default_aspect_ratio: 默认宽高比
+        request_timeout_seconds: 请求超时时间
+    """
+    deepseek_api_key: str
+    ofox_api_key: str
+    deepseek_base_url: str = "https://api.deepseek.com"
+    ofox_base_url: str = "https://api.ofox.ai/v1"
+    text_model: str = "deepseek-chat"
+    image_model: str = "volcengine/doubao-seedream-5.0-lite"
     default_language: str = "zh-CN"
     default_aspect_ratio: str = "16:9"
     request_timeout_seconds: float = 120.0
-    # Indicates if we're using Gemini API (for response_format handling)
-    is_gemini: bool = False
-
-    def model_for(self, purpose: str) -> str:
-        normalized = purpose.strip().lower()
-        if normalized in {"text", "draft"}:
-            return self.text_model
-        if normalized == "plan":
-            return self.planning_model or self.text_model
-        if normalized == "prompt":
-            return self.prompt_model or self.text_model
-        if normalized == "image":
-            return self.image_model
-        raise ValueError(f"unsupported model purpose: {purpose}")
 
 
 def load_settings(env_file: Optional[Path] = None) -> Settings:
-    env_values = _load_env_files(env_file)
+    """加载配置
 
-    # Priority: GEMINI_API_KEY > OPENAI_API_KEY (with fallback)
-    # This allows Gemini to be the primary choice while maintaining backward compatibility
-    api_key = _pick_setting(
-        env_values,
-        ("GEMINI_API_KEY", "OPENAI_API_KEY", "PPT_OPENAI_API_KEY"),
-    )
-    if not api_key:
-        raise WorkflowEnvironmentError(
-            "GEMINI_API_KEY or OPENAI_API_KEY is required"
-        )
+    Args:
+        env_file: 可选的 .env 文件路径，默认为项目根目录下的 .env
 
-    # Detect if using Gemini by checking for GEMINI_API_KEY
-    is_gemini = _pick_setting(env_values, ("GEMINI_API_KEY",)) is not None
+    Returns:
+        Settings 实例
 
-    # Base URL: GEMINI_BASE_URL for Gemini, OPENAI_BASE_URL for OpenAI
-    # Gemini default: https://generativelanguage.googleapis.com/v1beta/openai/
-    if is_gemini:
-        base_url = _normalize_base_url(
-            _pick_setting(
-                env_values,
-                ("GEMINI_BASE_URL", "PPT_GEMINI_BASE_URL"),
-                "https://generativelanguage.googleapis.com/v1beta/openai/",
-            )
-        )
-    else:
-        base_url = _normalize_base_url(
-            _pick_setting(env_values, ("OPENAI_BASE_URL", "PPT_OPENAI_BASE_URL"))
-        )
+    Raises:
+        WorkflowEnvironmentError: 缺少必需的 API Key
+    """
+    _load_dotenv(env_file)
 
-    # Default models based on provider
-    default_text_model = "gemini-3-flash-preview" if is_gemini else "gpt-4.1-mini"
-    default_image_model = "gemini-2.5-flash-image" if is_gemini else "gpt-image-1"
+    deepseek_api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if not deepseek_api_key:
+        raise WorkflowEnvironmentError("DEEPSEEK_API_KEY 未设置")
 
-    text_model = _pick_setting(
-        env_values,
-        ("PPT_TEXT_MODEL", "PPT_LLM_MODEL", "OPENAI_TEXT_MODEL"),
-        default_text_model,
-    )
-    planning_model = _pick_setting(
-        env_values,
-        ("PPT_PLANNING_MODEL", "PPT_PLAN_MODEL"),
-        text_model,
-    )
-    prompt_model = _pick_setting(
-        env_values,
-        ("PPT_PROMPT_MODEL", "PPT_VISUAL_PROMPT_MODEL"),
-        text_model,
-    )
-    image_model = _pick_setting(
-        env_values,
-        ("PPT_IMAGE_MODEL", "OPENAI_IMAGE_MODEL"),
-        default_image_model,
-    )
-    default_language = _pick_setting(
-        env_values,
-        ("PPT_DEFAULT_LANGUAGE", "LANGUAGE"),
-        "zh-CN",
-    )
-    default_aspect_ratio = _pick_setting(
-        env_values,
-        ("PPT_DEFAULT_ASPECT_RATIO",),
-        "16:9",
-    )
-    timeout_raw = _pick_setting(
-        env_values,
-        ("PPT_REQUEST_TIMEOUT_SECONDS", "OPENAI_TIMEOUT"),
-        "120.0",
-    )
+    ofox_api_key = os.environ.get("OFOX_API_KEY", "").strip()
+    if not ofox_api_key:
+        raise WorkflowEnvironmentError("OFOX_API_KEY 未设置")
+
+    deepseek_base_url = os.environ.get("DEEPSEEK_BASE_URL", "").strip() or "https://api.deepseek.com"
+    ofox_base_url = os.environ.get("OFOX_BASE_URL", "").strip() or "https://api.ofox.ai/v1"
+
+    text_model = os.environ.get("PPT_TEXT_MODEL", "").strip() or "deepseek-chat"
+    image_model = os.environ.get("PPT_IMAGE_MODEL", "").strip() or "volcengine/doubao-seedream-5.0-lite"
+    default_language = os.environ.get("PPT_DEFAULT_LANGUAGE", "").strip() or "zh-CN"
+    default_aspect_ratio = os.environ.get("PPT_DEFAULT_ASPECT_RATIO", "").strip() or "16:9"
+
+    timeout_raw = os.environ.get("PPT_REQUEST_TIMEOUT_SECONDS", "120.0").strip()
     try:
-        request_timeout_seconds = float(timeout_raw) if timeout_raw is not None else 120.0
+        request_timeout_seconds = float(timeout_raw) if timeout_raw else 120.0
     except ValueError as exc:
-        raise WorkflowEnvironmentError("PPT_REQUEST_TIMEOUT_SECONDS must be numeric") from exc
+        raise WorkflowEnvironmentError("PPT_REQUEST_TIMEOUT_SECONDS 必须是数字") from exc
 
     return Settings(
-        openai_api_key=api_key,
-        openai_base_url=base_url,
-        text_model=text_model or default_text_model,
-        planning_model=planning_model,
-        prompt_model=prompt_model,
-        image_model=image_model or default_image_model,
-        default_language=default_language or "zh-CN",
-        default_aspect_ratio=default_aspect_ratio or "16:9",
+        deepseek_api_key=deepseek_api_key,
+        ofox_api_key=ofox_api_key,
+        deepseek_base_url=deepseek_base_url,
+        ofox_base_url=ofox_base_url,
+        text_model=text_model,
+        image_model=image_model,
+        default_language=default_language,
+        default_aspect_ratio=default_aspect_ratio,
         request_timeout_seconds=request_timeout_seconds,
-        is_gemini=is_gemini,
     )
 
 

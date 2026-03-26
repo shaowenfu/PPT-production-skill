@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, root_validator, validator
@@ -13,124 +12,13 @@ class ContractModel(BaseModel):
         extra = "forbid"
 
 
-WorkflowStateName = Literal[
-    "Initialized",
-    "OutlineImported",
-    "DraftGenerated",
-    "PlanConfirmed",
-    "AssetsGenerated",
-    "DeckAssembled",
-    "FinalApproved",
-    "Blocked",
-]
-
-ProjectStatus = Literal["active", "waiting_user", "failed", "completed", "archived"]
-FeedbackScope = Literal["outline", "draft", "plan", "asset", "assembly", "final"]
 PageCategory = Literal["A", "B"]
 SlideIntent = Literal["cover", "content", "quote", "transition", "summary"]
-PromptStrategy = Literal["simple_background", "emotional_visual"]
-
-
-class ArtifactRecord(ContractModel):
-    path: str
-    exists: bool
-    updated_at: Optional[datetime] = None
-
-
-class FeedbackRecord(ContractModel):
-    feedback_id: str
-    timestamp: datetime
-    from_state: WorkflowStateName
-    target_scope: FeedbackScope
-    target_pages: List[str] = Field(default_factory=list)
-    summary: str
-    action: str
-
-
-class TransitionRecord(ContractModel):
-    timestamp: datetime
-    from_state: WorkflowStateName
-    to_state: WorkflowStateName
-    trigger: Literal["tool_success", "user_feedback", "manual_recover", "retry_success", "rollback"]
-    step: str
-    note: Optional[str] = None
-
-
-class WorkflowState(ContractModel):
-    schema_version: str = "1.0"
-    project_id: str
-    project_name: Optional[str] = None
-    current_state: WorkflowStateName
-    last_completed_step: Optional[str] = None
-    last_failed_step: Optional[str] = None
-    status: ProjectStatus = "active"
-    artifacts: Dict[str, ArtifactRecord] = Field(default_factory=dict)
-    feedback_history: List[FeedbackRecord] = Field(default_factory=list)
-    transition_history: List[TransitionRecord] = Field(default_factory=list)
-    retry_count: Dict[str, int] = Field(default_factory=dict)
-    context: Dict[str, Any] = Field(default_factory=dict)
-    updated_at: datetime
-    created_at: datetime
-
-    @validator("project_id")
-    def project_id_must_not_be_empty(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("project_id must not be empty")
-        return value
-
-    @validator("retry_count")
-    def retry_counts_must_be_non_negative(cls, value: Dict[str, int]) -> Dict[str, int]:
-        for step, count in value.items():
-            if count < 0:
-                raise ValueError(f"retry_count[{step}] must be non-negative")
-        return value
-
-
-class OutlineSourceFile(ContractModel):
-    path: str
-    type: Literal["docx", "pdf", "txt", "md"]
-
-
-class OutlineSection(ContractModel):
-    id: str
-    title: str
-    level: int
-    content: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    @validator("level")
-    def level_must_be_positive(cls, value: int) -> int:
-        if value < 1:
-            raise ValueError("section level must be >= 1")
-        return value
-
-
-class OutlineDocument(ContractModel):
-    project_id: str
-    source_files: List[OutlineSourceFile] = Field(default_factory=list)
-    title: Optional[str] = None
-    sections: List[OutlineSection] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    @root_validator(skip_on_failure=True)
-    def outline_must_have_title_or_sections(cls, values: Dict[str, Any]) -> Dict[str, Any]:
-        title = values.get("title")
-        sections = values.get("sections") or []
-        if not title and not sections:
-            raise ValueError("outline must have a title or at least one section")
-        return values
 
 
 class SlideDraftSlide(ContractModel):
     page_id: str
-    source_section: Optional[str] = None
-    title: str
-    slide_text: List[str] = Field(default_factory=list)
-    quote: Optional[str] = None
-    speaker_note: Optional[str] = None
-    intent: SlideIntent = "content"
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    content: str  # 专注于深度的业务逻辑、技术分析或案例详情描述
 
 
 class SlideDraftDocument(ContractModel):
@@ -153,9 +41,6 @@ class PlanPage(ContractModel):
     content_hint: Optional[str] = None  # 大纲内容片段或要点
     category: PageCategory
     layout_type: str
-    prompt_strategy: PromptStrategy
-    style_tags: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class SlidePlanDocument(ContractModel):
@@ -178,10 +63,6 @@ class SlidePlanDocument(ContractModel):
 class PromptItem(ContractModel):
     page_id: str
     prompt: str
-    negative_prompt: str
-    aspect_ratio: str = "16:9"
-    style_tags: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PromptDocument(ContractModel):
@@ -229,26 +110,15 @@ class AssetManifest(ContractModel):
 
 
 __all__ = [
-    "ArtifactRecord",
     "AssetItem",
     "AssetManifest",
     "ContractModel",
-    "FeedbackRecord",
-    "FeedbackScope",
-    "OutlineDocument",
-    "OutlineSection",
-    "OutlineSourceFile",
     "PageCategory",
     "PlanPage",
     "PromptDocument",
     "PromptItem",
-    "PromptStrategy",
-    "ProjectStatus",
     "SlideDraftDocument",
     "SlideDraftSlide",
     "SlideIntent",
     "SlidePlanDocument",
-    "TransitionRecord",
-    "WorkflowState",
-    "WorkflowStateName",
 ]
