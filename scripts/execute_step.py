@@ -49,6 +49,7 @@ def _add_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--page-ids", help="Draft 生成目标页面 ID，逗号分隔")
     parser.add_argument("--target-pages", help="Asset 生成目标页面 ID，逗号分隔")
     parser.add_argument("--batch-size", type=int, default=5, help="Prompt 设计批大小")
+    parser.add_argument("--parallel", type=int, default=1, help="Prompt/Asset 并发数量")
     parser.add_argument("--overwrite", action="store_true", default=False, help="覆盖已有产物")
     return parser
 
@@ -101,7 +102,11 @@ def _build_step_command(args: argparse.Namespace) -> list[str]:
         command.extend(["--page-ids", args.page_ids])
     elif step == "visual_prompt_design":
         command.extend(["--batch-size", str(args.batch_size)])
+        command.extend(["--parallel", str(args.parallel)])
+        if args.target_pages:
+            command.extend(["--target-pages", args.target_pages])
     elif step == "visual_asset_generate":
+        command.extend(["--parallel", str(args.parallel)])
         if args.target_pages:
             command.extend(["--target-pages", args.target_pages])
         if args.overwrite:

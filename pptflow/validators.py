@@ -21,6 +21,7 @@ ALLOWED_STATES = {
     "OutlineImported",
     "DraftGenerated",
     "PlanConfirmed",
+    "PromptsGenerated",
     "AssetsGenerated",
     "DeckAssembled",
     "FinalApproved",

@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 from datetime import datetime
 from typing import Any
 
@@ -18,11 +19,11 @@ from _bootstrap import bootstrap_project
 
 bootstrap_project(__file__)
 
-from openai import OpenAI
+from openai import AsyncOpenAI, RateLimitError
 
 from pptflow.cli import print_stderr, run_cli
 from pptflow.config import load_settings
-from pptflow.errors import InputError, OutputValidationError
+from pptflow.errors import InputError
 from pptflow.json_io import read_json, write_json
 from pptflow.llm_json import parse_llm_json
 from pptflow.paths import resolve_project_dir
@@ -30,94 +31,210 @@ from pptflow.schemas import SlideDraftDocument, SlidePlanDocument, PromptDocumen
 from pptflow.state_store import append_transition, load_state, save_state, set_artifact
 
 TOOL_NAME = "visual_prompt_design"
+MAX_RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 
 
-def _generate_json_text(
-    client: OpenAI,
+async def _generate_json_text(
+    client: AsyncOpenAI,
     model: str,
     system_prompt: str,
     user_prompt: str,
     temperature: float = 0.8,
 ) -> dict[str, Any]:
     """调用 LLM 生成 JSON 响应"""
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temperature,
-            response_format={"type": "json_object"},
-        )
-    except Exception as exc:
-        raise InputError(f"LLM 调用失败: {exc}") from exc
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+                response_format={"type": "json_object"},
+            )
+            break
+        except RateLimitError as exc:
+            if attempt >= MAX_RATE_LIMIT_RETRIES:
+                raise InputError(f"LLM 调用失败: {exc}") from exc
+            delay = RATE_LIMIT_RETRY_DELAY_SECONDS * (attempt + 1)
+            print_stderr(f"触发 429，{delay:.0f} 秒后重试...")
+            await asyncio.sleep(delay)
+        except Exception as exc:
+            raise InputError(f"LLM 调用失败: {exc}") from exc
 
     content = response.choices[0].message.content
     return parse_llm_json(content, source="visual_prompt_design 模型响应")
 
 
+def _build_page_brief(plan_page: Any, draft_content: str) -> str:
+    title = plan_page.title or ""
+    content_hint = plan_page.content_hint or ""
+    return (
+        f"Page ID: {plan_page.page_id}\n"
+        f"Category: {plan_page.category}\n"
+        f"Layout Type: {plan_page.layout_type}\n"
+        f"Title: {title}\n"
+        f"Content Hint: {content_hint}\n"
+        f"Draft Content: {draft_content}\n"
+    )
+
+
 def _build_system_prompt() -> str:
-    return """你是一个具备顶级美学修养的 PPT 视觉总监 (Art Director)。
-你的任务是将深度文案 (Draft Content) 转化为极致视觉表现力的图像提示词 (Visual Prompt)。
+    return """你是 production-grade PPT 视觉总监。你的职责是先理解页面内容与页面用途，再独立完成视觉设计决策，为图像模型生成可执行、贴合主题、页间有节奏差异的页面提示词。。
 
-## 核心设计法则：视觉对比 (Contrast)
-遵循《非设计师设计指南》，通过以下手段产生"高级感"：
-1. **材质对比 (Texture Contrast)**：硬质实体 (3D Metal) 与 软质背景 (Particles/Fog) 的冲突。
-2. **光影对比 (Lighting Contrast)**：冷色调背景 (Midnight Blue) 与 暖色调主光源 (Amber/Gold) 的对撞。
-3. **虚实对比 (Depth Contrast)**：模糊的背景网格 (Grid/Bokeh) 与 极其锋利的 3D 文字边缘 (Relief)。
+## 你的工作方式
+你不是 prompt 拼接器，也不是固定模板执行器。你要像真正的视觉导演一样工作：
+1. 先理解这页要表达什么。
+2. 判断这页是应该偏信息表达、偏叙事冲击、偏结构解释，还是偏案例证据。
+3. 自主决定最适合的：
+   - visual concept
+   - visual metaphor or imagery
+   - style direction
+   - composition
+   - text placement
+   - information hierarchy
+4. 最终输出一个可以直接交给图像模型的 prompt。
 
-## 差异化信息密度策略 (Density Differentiation)
+## 语言规则
+1. `prompt` 的描述性部分必须使用英文。
+2. 幻灯片上真正要渲染的业务文案必须保持中文，并放在英文指令中的引号里。
+3. 不要把中文业务文案翻译成英文再渲染。
+4. 不要在 prompt 中混入未被引号包裹的中文说明文字。
 
-**A 类 (信息型/架构型)**：
-- **目标**：重内容，保信息。
-- **文案蒸馏**：从内容中提炼"1个核心标题 + 3至5个逻辑要点"。
-- **视觉层级**：文字是主角。背景应是 Clean UI Dashboard 或 Frosted Glass Cards。
-- **Typography Layer**: 必须写在半透明毛玻璃卡片上，确保绝对易读。
+## 页面设计原则
+1. 设计必须贴合当前页面主题，而不是套用固定的“科技感”模板。
+2. 整套 deck 要统一，但每页都应有合理差异。相邻页面不要重复相同的视觉母题、构图套路或主物体。
+3. 视觉必须服务表达，不要用空泛的艺术词替代真实设计。
+4. 如果页面适合极简，就做极简；如果适合叙事画面，就做叙事；如果适合结构化信息版式，就做结构化信息版式。
 
-**B 类 (情绪型/金句型)**：
-- **目标**：重冲击，保金句。
-- **文案蒸馏**：从内容中提取"唯一且极具灵魂的金句"。
-- **视觉层级**：画面是主角。采用 Cinematic 叙事、Surreal Metaphor (视觉隐喻)。
-- **Typography Layer**: 文字要像 Monumental Typography (纪念碑)，具有极强的物理体积和阴影。
+## A/B 页原则
+1. `A` 类页是 information-led slide。重点是清晰结构、可读的中文标题和中文要点、服务信息表达的版式。
+2. `B` 类页是 impact-led slide。可以更有情绪和画面张力，但仍必须与页面主题强相关，不能只是空洞海报。同时金句要用大号字体，强烈视觉效果，位于视觉中心的焦点位置，不要被复杂画面淹没了。
 
-## 严苛视觉禁令 (CRITICAL NEGATIVE CONSTRAINTS)
-1. **禁止文字污染**：严禁在 prompt 中出现“AI生成”、“AI Generated”、“Made by AI”、“水印”、“Logo”或任何版权标识。
-2. **禁止描述性文字误入**：prompt 必须是纯粹的视觉描述，不要包含“这是一张...的照片”等废话。
-3. **纯净画面**：除非 `refined_text` 中明确要求渲染的标题，否则画面中不得出现任何杂乱字符或无意义的伪文字。
+## layout_type 约束
+- `cover`: 建立全局主题与第一印象。
+- `section_header`: 用于章节转场，强调章节气质。
+- `bullet_points`: 标题 + 精炼要点，强调清晰与阅读效率。
+- `comparison`: 强调左右、前后、旧新、问题与方案等对照关系。
+- `process_flow`: 强调步骤、路径、链路、阶段推进。
+- `framework`: 强调层次、模块、框架和结构关系。
+- `case_study`: 强调案例背景、方案、结果或复盘逻辑。
+- `data_evidence`: 强调指标、趋势、证据、对照。
+- `image_only`: 适合主张强、信息少、画面主导的页面。
+- `summary`: 用于总结、收束、路线图或行动指向。
 
-## 提示词四层结构 (Four-Layer Structure)
-1. **[Environment]**: 环境基调、对比色板（Color Palette）。
-2. **[Typography Layer]**: 文字材质、物理坐标（如 Upper 40%）、留白保护区。**必须严格仅渲染 `refined_text` 中的内容。**
-3. **[Visual Anchor]**: 与文案语义呼应的 3D 视觉中心（如：断裂的齿轮、发光的灯塔）。
-4. **[Render & Quality]**: Octane render, 8k, Unreal Engine 5 style, hyper-realistic, **No Watermark, No AI text signatures**.
+## 内容蒸馏规则
+1. 从 Draft Content 中提炼适合上屏的中文文案，不要把整段讲稿直接搬进图里。
+2. `A` 页通常输出 1 个中文标题 + 2 至 4 个中文要点。
+3. `B` 页通常输出 1 个中文“金句”；必要时可加 1 个短副标题。
+4. 中文文案必须短、准、可上屏，避免长句讲稿化。
 
-## 输出格式
-输出必须是一个 JSON 对象，包含 `prompts` 数组。每个项必须包含：
+## 禁止事项
+1. 禁止出现 watermark, logo, copyright mark, AI generated mark，“AI生成”类似的水印。
+2. 禁止出现无意义伪文字。
+3. 禁止把 prompt 写成空洞的艺术评论。
+4. 禁止反复使用固定风格口头禅、固定材质、固定主物体、固定镜头模板。
+
+## 输出要求
+输出必须是 JSON 对象，包含 `prompts` 数组。
+每个项只包含：
 - `page_id`
-- `prompt`: 完整的、面向主流图像生成模型的英文指令。
-- `refined_text`: JSON 对象，包含标题和列表（用于记录蒸馏后的文字）。
+- `prompt`
 
-注意：禁止在 prompt 中包含任何中文文字。若涉及文字渲染，必须使用英文指令指定：Render text "指定文字" in high-quality 3D relief style. 严禁渲染任何非业务相关的标注词。"""
+`prompt` 必须是紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点。"""
 
 
 
 def _build_user_prompt(plan: SlidePlanDocument, draft_batch: list[dict[str, Any]]) -> str:
-    plan_overview = "\n".join([f"- {p.page_id}: {p.title} ({p.category})" for p in plan.pages])
-    batch_detail = ""
+    plan_overview = "\n".join(
+        [
+            f"- {p.page_id}: title={p.title or ''}; category={p.category}; layout_type={p.layout_type}"
+            for p in plan.pages
+        ]
+    )
+    page_map = {page.page_id: page for page in plan.pages}
+    batch_sections: list[str] = []
     for d in draft_batch:
-        p_info = next((p for p in plan.pages if p.page_id == d["page_id"]), None)
-        batch_detail += f"--- Page {d['page_id']} ---\n"
-        batch_detail += f"Category: {p_info.category if p_info else 'A'}\n"
-        batch_detail += f"Draft Content: {d['content']}\n\n"
+        plan_page = page_map.get(d["page_id"])
+        if plan_page is None:
+            continue
+        batch_sections.append(_build_page_brief(plan_page, d["content"]))
 
-    return f"""全局幻灯片规划概要：
+    batch_detail = "\n---\n".join(batch_sections)
+
+    return f"""Deck Overview:
 {plan_overview}
 
-当前批次待设计的页面内容：
+Current Batch:
 {batch_detail}
 
-请根据视觉导演法则和对比原则，为每页生成最终的提示词。输出 JSON 必须包含 `prompts` 数组。"""
+Additional Directives:
+- Generate one prompt per page in the current batch.
+- Keep the deck visually coherent but not repetitive.
+- Use different compositions across adjacent pages.
+- Make independent design decisions for each page based on its theme, category, and layout type.
+- For A pages, prioritize readable Chinese information layout over theatrical visual effects.
+- For B pages, prioritize a strong thematic image derived from the page topic, not generic sci-fi.
+- The descriptive prompt language must be English.
+- Any text to render on the slide must remain Chinese inside quotes.
+- Do not output explanations. Output JSON only."""
+
+
+async def _generate_prompt_batch(
+    *,
+    client: AsyncOpenAI,
+    settings: Any,
+    plan: SlidePlanDocument,
+    draft_batch: list[dict[str, Any]],
+    start_index: int,
+    semaphore: asyncio.Semaphore,
+) -> list[PromptItem]:
+    async with semaphore:
+        print_stderr(
+            f"使用 DeepSeek/{settings.text_model} 导演第 {start_index + 1} 至 {start_index + len(draft_batch)} 页的视觉设计..."
+        )
+        payload = await _generate_json_text(
+            client=client,
+            model=settings.text_model,
+            system_prompt=_build_system_prompt(),
+            user_prompt=_build_user_prompt(plan, draft_batch),
+            temperature=0.4,
+        )
+    return [PromptItem(page_id=item["page_id"], prompt=item["prompt"]) for item in payload.get("prompts", [])]
+
+
+async def _run_batches(
+    *,
+    client: AsyncOpenAI,
+    settings: Any,
+    plan: SlidePlanDocument,
+    draft: SlideDraftDocument,
+    batch_size: int,
+    parallel: int,
+) -> list[PromptItem]:
+    semaphore = asyncio.Semaphore(parallel)
+    tasks = []
+    for i in range(0, len(draft.slides), batch_size):
+        batch_slides = draft.slides[i:i + batch_size]
+        draft_batch = [s.model_dump() for s in batch_slides]
+        tasks.append(
+            _generate_prompt_batch(
+                client=client,
+                settings=settings,
+                plan=plan,
+                draft_batch=draft_batch,
+                start_index=i,
+                semaphore=semaphore,
+            )
+        )
+
+    results = await asyncio.gather(*tasks)
+    all_prompts: list[PromptItem] = []
+    for batch_prompts in results:
+        all_prompts.extend(batch_prompts)
+    return all_prompts
 
 
 def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
@@ -126,7 +243,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     state = load_state(project_dir)
 
     # 1. 初始化 DeepSeek 客户端
-    client = OpenAI(
+    client = AsyncOpenAI(
         api_key=settings.deepseek_api_key,
         base_url=settings.deepseek_base_url,
     )
@@ -137,45 +254,55 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
 
     plan = SlidePlanDocument(**read_json(plan_path))
     draft = SlideDraftDocument(**read_json(draft_path))
+    target_ids = [p.strip() for p in args.target_pages.split(",") if p.strip()] if args.target_pages else None
+    if target_ids:
+        draft.slides = [slide for slide in draft.slides if slide.page_id in target_ids]
+        if not draft.slides:
+            return {
+                "project_id": state["project_id"],
+                "warnings": [f"没有找到匹配的页面: {args.target_pages}"],
+                "metrics": {"total_prompts": 0},
+                "model": settings.text_model,
+            }
 
-    # 3. 分批异步生成
-    batch_size = args.batch_size
-    all_prompts = []
-
-    for i in range(0, len(draft.slides), batch_size):
-        batch_slides = draft.slides[i:i+batch_size]
-        draft_batch = [s.model_dump() for s in batch_slides]
-
-        print_stderr(
-            f"使用 DeepSeek/{settings.text_model} 导演第 {i + 1} 至 {i + len(batch_slides)} 页的视觉设计..."
-        )
-
-        payload = _generate_json_text(
+    # 3. 分批并发生成
+    batch_size = max(1, args.batch_size)
+    parallel = max(1, args.parallel)
+    all_prompts = asyncio.run(
+        _run_batches(
             client=client,
-            model=settings.text_model,
-            system_prompt=_build_system_prompt(),
-            user_prompt=_build_user_prompt(plan, draft_batch),
-            temperature=0.8
+            settings=settings,
+            plan=plan,
+            draft=draft,
+            batch_size=batch_size,
+            parallel=parallel,
         )
-
-        for item in payload.get("prompts", []):
-            all_prompts.append(PromptItem(page_id=item["page_id"], prompt=item["prompt"]))
+    )
 
     # 4. 写入结果
     prompt_file = project_dir / "prompts" / "prompts.json"
     prompt_file.parent.mkdir(exist_ok=True)
-    prompt_doc = PromptDocument(project_id=state["project_id"], items=all_prompts)
+    if prompt_file.exists():
+        existing_doc = PromptDocument(**read_json(prompt_file))
+        prompt_map = {item.page_id: item for item in existing_doc.items}
+        for item in all_prompts:
+            prompt_map[item.page_id] = item
+        merged_items = sorted(prompt_map.values(), key=lambda x: int(x.page_id[1:]))
+    else:
+        merged_items = all_prompts
+
+    prompt_doc = PromptDocument(project_id=state["project_id"], items=merged_items)
     write_json(prompt_file, prompt_doc.model_dump())
 
     # 5. 更新状态
     previous_state = state["current_state"]
     state = set_artifact(state, "prompts", "prompts/prompts.json", exists=True)
-    state["current_state"] = "AssetsGenerated"
+    state["current_state"] = "PromptsGenerated"
     state["last_completed_step"] = TOOL_NAME
     state = append_transition(state, {
         "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
         "from_state": previous_state,
-        "to_state": "AssetsGenerated",
+        "to_state": "PromptsGenerated",
         "trigger": "tool_success",
         "step": TOOL_NAME,
         "note": f"Generated {len(all_prompts)} visual prompts"
@@ -193,7 +320,9 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(prog=TOOL_NAME)
     parser.add_argument("--project-dir", required=True, help="项目目录")
+    parser.add_argument("--target-pages", default=None, help="目标页面ID (逗号分隔)")
     parser.add_argument("--batch-size", type=int, default=5, help="每批生成的页面数量")
+    parser.add_argument("--parallel", type=int, default=1, help="并发批次数量")
     return run_cli(handle_visual_prompt_design, tool=TOOL_NAME, parser=parser)
 
 

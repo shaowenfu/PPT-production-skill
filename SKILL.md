@@ -9,139 +9,286 @@ compatibility:
 
 # PPT Production Expert
 
-Use this skill after the agent clones this repository. The workflow has seven steps, but only part of it is script-backed. `outline` and `plan` are usually direct agent work on project artifacts; the later production steps use the repo scripts.
+Use this skill after the agent clones this repository. Treat this document as the primary `SOP（标准作业程序）`. Do not inspect source code unless a command fails, required config is missing, or an artifact is structurally invalid.
+
+## Core model
+
+This repo produces PPT in a specific way:
+
+- `final slide` = one `full-bleed image（全屏视觉图）`
+- `detailed talking content` = `speaker notes（演讲者备注）`
+- `slide_draft.json` is the content knowledge base for later visual and note generation
+- `no text pollution` means no messy AI-rendered junk text on the image; it does not mean the deck has no information
+
+Do not redesign this rendering model during execution. Follow it.
 
 ## Operating assumptions
 
-1. Treat the directory containing this `SKILL.md` as the repo root. Resolve all paths relative to that directory. Do not assume any absolute filesystem path.
-2. If the repo is not present locally yet, clone it first and then work from the cloned repo root.
-3. Before any Python step, bootstrap the environment:
+1. Treat the directory containing `SKILL.md` as `repo root`.
+2. Resolve all paths relative to `repo root`. Never assume any absolute filesystem path.
+3. If the repo is not present locally yet, clone it first and then work from that cloned `repo root`.
+4. Before any Python step:
    - if `venv/` does not exist, run `python -m venv venv`
    - run `source venv/bin/activate`
    - run `pip install -r requirements.txt`
-4. Keep `aspect ratio` fixed at `16:9`. Use image size `1792x1024`.
-5. Prefer the thin entry `./skill.sh` for script-backed steps. It forwards to `scripts/execute_step.py`.
-6. Keep atomic script boundaries intact. Do not collapse the workflow into one custom script.
-7. When resuming a project, read `PPT/<project_id>/state.json` first and align the next action with the recorded artifacts.
-8. Before text or image generation, confirm the required credentials are available:
+5. Keep `aspect ratio` fixed at `16:9`.
+6. Keep image size fixed at `1792x1024`.
+7. Prefer `./skill.sh` for all script-backed steps. It is the stable thin entry.
+8. Keep atomic script boundaries intact. Do not merge the workflow into one custom script.
+9. When resuming a project, read `PPT/<project_id>/state.json` first.
+10. Required credentials:
    - `DEEPSEEK_API_KEY` for text generation
    - `OFOX_API_KEY` for image generation
+
+## Default execution policy
+
+- If the user asks for a final PPT, run the full seven-step workflow continuously.
+- Do not stop for intermediate review unless the user explicitly asks to review `outline`, `plan`, `prompts`, or another intermediate artifact.
+- Only stop automatically on real blockers:
+  - missing source material
+  - missing credentials
+  - command failure
+  - invalid or missing required artifact
+- If a step is manual, complete it directly instead of waiting for a later script to fail.
+- If a question is non-blocking, follow this `SKILL.md` and continue. Do not inspect code just to “double check”.
+
+## Script responsibility table
+
+| Step | Backing mode | What it does | Scope |
+| --- | --- | --- | --- |
+| `init` | script | creates workspace and state files | one project |
+| `draft` | script | generates deep page content into `draft/slide_draft.json` | only requested `page_ids` |
+| `prompt` | script | generates visual prompts from draft content | supports full run, selected pages, and parallel batches |
+| `assets` | script | generates slide images from prompts | supports full run, selected pages, and parallel generation |
+| `assemble` | script | packs images into `deck.pptx` and writes notes | one final deck |
+
+Manual steps:
+
+- `outline` is direct agent writing
+- `plan` is direct agent writing
 
 ## Seven-step workflow
 
 ### Step 1: Project Init
 
-Use when the user wants a new PPT workspace.
+Goal:
+Create a new PPT workspace.
 
-Run:
+Action:
 ```bash
 ./skill.sh --step init --project-dir PPT/<project_id>
 ```
 
-Expected result:
+Output:
 - `PPT/<project_id>/state.json`
-- standard project subdirectories
+- standard project directories
+
+Done when:
+- the project directory exists
+- `state.json` exists
 
 ### Step 2: Outline Ingest
 
-This is direct agent work, not a script.
+Goal:
+Turn the user topic or source outline into a production-ready chapter structure.
 
-Write:
+Action:
+Write `PPT/<project_id>/outline/outline.md` directly. Do not use a script.
+
+Output:
 - `PPT/<project_id>/outline/outline.md`
 
-Requirements:
-- Simplified Chinese
-- clear business or technical structure
-- usually `7-10` core sections
+Done when:
+- the outline is in Simplified Chinese
+- the structure is coherent and presentation-ready
+- the chapter flow matches the user goal
+
+Minimal example:
+```md
+# 趋势洞察：AI时代通信运营新机遇
+
+## 1. 时代背景与行业变化
+- AI 从工具升级为产业基础设施
+- 通信运营商从管道角色走向能力平台角色
+
+## 2. 通信运营商的新机会
+- 网络、数据、算力、渠道和行业客户资源的再组合
+- 从连接服务延展到智能服务
+
+## 3. 落地路径与行动建议
+- 试点场景选择
+- 能力建设重点
+- 组织与协同机制
+```
 
 ### Step 3: Slide Planning
 
-This is direct agent work, not a script.
+Goal:
+Convert the outline into a slide-by-slide execution plan.
 
-Write:
+Action:
+Write `PPT/<project_id>/plan/plan.json` directly. Do not use a script.
+
+Output:
 - `PPT/<project_id>/plan/plan.json`
 
-Requirements:
-- conform to `pptflow/schemas.py` `SlidePlanDocument`
-- default to `25` pages unless the user says otherwise
-- keep `B` pages within `20%-40%`
-- make `page_id` unique and sequential
+Done when:
+- page count is `25` by default unless the user says otherwise
+- `page_id` is unique and sequential like `p1`, `p2`, `p3`
+- `category` uses only `A` or `B`
+- `B` pages stay within `20%-40%`
+- every page has a deliberate `layout_type`
+
+Planning rules:
+- decide `layout_type` in `plan.json`, not later in prompt generation
+- `layout_type` should express information structure, not visual style keywords
+- avoid using a single `A`-page type for everything
+- recommended `layout_type` vocabulary:
+  - `cover`
+  - `section_header`
+  - `bullet_points`
+  - `comparison`
+  - `process_flow`
+  - `framework`
+  - `case_study`
+  - `data_evidence`
+  - `image_only`
+  - `summary`
+- adjacent pages should not all share the same `layout_type`
+
+Minimal example:
+```json
+{
+  "pages": [
+    {
+      "page_id": "p1",
+      "title": "趋势洞察：AI时代通信运营新机遇",
+      "category": "B",
+      "content_hint": "封面与主题建立",
+      "layout_type": "cover"
+    },
+    {
+      "page_id": "p2",
+      "title": "为什么现在必须重新看待运营商价值",
+      "category": "A",
+      "content_hint": "提出核心判断与价值重估逻辑",
+      "layout_type": "comparison"
+    }
+  ]
+}
+```
 
 ### Step 4: Deep Content Generation
 
-Use after `outline` and `plan` exist.
+Goal:
+Generate substantial business content for selected slides.
 
-Run in batches:
+Action:
+Run by batches over requested `page_ids`:
 ```bash
 ./skill.sh --step draft --project-dir PPT/<project_id> --page-ids p1,p2,p3,p4,p5
 ```
 
-Validate:
-- `PPT/<project_id>/draft/slide_draft.json` exists
-- generated pages contain substantive content, not title restatement
+Output:
+- `PPT/<project_id>/draft/slide_draft.json`
+
+Done when:
+- requested pages exist in `slide_draft.json`
+- content is substantive, not just title restatement
 
 ### Step 5: Visual Prompt Design
 
-Use after `draft` exists.
+Goal:
+Convert slide draft content into image-generation prompts.
 
-Run:
+Action:
+Run one page:
 ```bash
-./skill.sh --step prompt --project-dir PPT/<project_id> --batch-size 5
+./skill.sh --step prompt --project-dir PPT/<project_id> --target-pages p8 --parallel 1
 ```
 
-Validate:
-- `PPT/<project_id>/prompts/prompts.json` exists
-- prompts avoid AI watermark language and stray rendered text
+Run full or batch generation:
+```bash
+./skill.sh --step prompt --project-dir PPT/<project_id> --batch-size 5 --parallel 3
+```
+
+Output:
+- `PPT/<project_id>/prompts/prompts.json`
+
+Done when:
+- `prompts.json` exists
+- requested pages are present in `prompts.json`
+- prompts avoid watermark language and stray rendered text
 
 ### Step 6: Visual Asset Generate
 
-Use after prompts are ready.
+Goal:
+Render slide images from prompts.
 
-Run:
+Action:
+Run full generation:
 ```bash
-./skill.sh --step assets --project-dir PPT/<project_id>
+./skill.sh --step assets --project-dir PPT/<project_id> --parallel 3
 ```
 
-Optional:
+Run one page or rerun selected pages:
 ```bash
-./skill.sh --step assets --project-dir PPT/<project_id> --target-pages p8,p9 --overwrite
+./skill.sh --step assets --project-dir PPT/<project_id> --target-pages p8 --parallel 1
+./skill.sh --step assets --project-dir PPT/<project_id> --target-pages p8,p9 --parallel 2 --overwrite
 ```
 
-Validate:
-- `PPT/<project_id>/assets/manifest.json` exists
-- generated images use `1792x1024`
+Output:
+- `PPT/<project_id>/assets/manifest.json`
+- image files under `PPT/<project_id>/assets/`
+
+Done when:
+- requested images exist
+- image size is `1792x1024`
 
 ### Step 7: PPT Assemble
 
-Use after assets are ready.
+Goal:
+Assemble the final PPT from images and notes.
 
-Run:
+Action:
 ```bash
 ./skill.sh --step assemble --project-dir PPT/<project_id>
 ```
 
-Expected result:
+Output:
 - `PPT/<project_id>/deck/deck.pptx`
 
-## Execution policy
+Done when:
+- `deck.pptx` exists
+- slides use full-screen images
+- speaker notes are present for the generated pages
 
-- If the user asks for the full workflow or directly asks for the final PPT, run through all seven steps in order without intermediate approval requests, unless blocked by missing source material, missing credentials, or a hard failure.
-- If the user explicitly asks to review prompts, outlines, plans, or other intermediate artifacts, stop after that step and wait.
-- If the user asks for only one step, run only that step and validate its prerequisites first.
-- If a script-backed step fails, preserve the structured JSON error and explain the concrete blocker.
-- If a manual step is missing, create or repair the artifact directly instead of forcing a later script to fail.
+## Blocker handling
+
+Use this order:
+
+1. If config or credentials are missing, report the exact missing item and stop.
+2. If a command fails, preserve the structured JSON error and report the concrete blocker.
+3. If a manual artifact is missing or weak, repair it directly and continue.
+4. If a generated artifact is invalid, rerun only the minimum necessary step.
+5. Do not inspect code unless one of the cases above happens.
 
 ## What to report back
 
 Keep the response short and operational. Include:
-- what step was completed
-- which artifact changed
-- current project state or next recommended step
-- any blocker that prevents moving forward
+
+- completed step
+- changed artifact
+- current state or next step
+- blocker, if any
 
 ## Quick references
 
 - Thin entry: `skill.sh`
 - Dispatcher: `scripts/execute_step.py`
-- Schemas: `pptflow/schemas.py`
-- State handling: `pptflow/state_store.py`
+- Outline path: `PPT/<project_id>/outline/outline.md`
+- Plan path: `PPT/<project_id>/plan/plan.json`
+- Draft path: `PPT/<project_id>/draft/slide_draft.json`
+- Prompt path: `PPT/<project_id>/prompts/prompts.json`
+- Asset manifest: `PPT/<project_id>/assets/manifest.json`
+- Final deck: `PPT/<project_id>/deck/deck.pptx`

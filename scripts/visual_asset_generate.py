@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import urllib.request
 from datetime import datetime
@@ -21,7 +22,7 @@ from _bootstrap import bootstrap_project
 
 bootstrap_project(__file__)
 
-from openai import OpenAI
+from openai import AsyncOpenAI, RateLimitError
 from PIL import Image
 
 from pptflow.cli import print_stderr, run_cli
@@ -38,6 +39,8 @@ from pptflow.state_store import (
 )
 
 TOOL_NAME = "visual_asset_generate"
+MAX_RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 
 
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -47,35 +50,103 @@ def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser
     return parser
 
 
-def _generate_image(
-    client: OpenAI,
+async def _generate_image(
+    client: AsyncOpenAI,
     model: str,
     prompt: str,
     output_path: Path,
 ) -> tuple[bool, dict | None]:
     """统一的图像生成函数（仅 Doubao）"""
-    response = client.images.generate(
-        model=model,
-        prompt=prompt,
-        size="1792x1024",
-    )
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            response = await client.images.generate(
+                model=model,
+                prompt=prompt,
+                size="1792x1024",
+            )
+            break
+        except RateLimitError as exc:
+            if attempt >= MAX_RATE_LIMIT_RETRIES:
+                raise InputError(f"图像生成失败: {exc}") from exc
+            delay = RATE_LIMIT_RETRY_DELAY_SECONDS * (attempt + 1)
+            print_stderr(f"页面图像触发 429，{delay:.0f} 秒后重试...")
+            await asyncio.sleep(delay)
+        except Exception as exc:
+            raise InputError(f"图像生成失败: {exc}") from exc
 
     first_data = response.data[0]
 
     # 优先使用 b64_json，否则使用 url
     if hasattr(first_data, "b64_json") and first_data.b64_json:
         img_data = base64.b64decode(first_data.b64_json)
-        with output_path.open("wb") as handle:
-            handle.write(img_data)
+        await asyncio.to_thread(output_path.write_bytes, img_data)
     elif hasattr(first_data, "url") and first_data.url:
-        urllib.request.urlretrieve(first_data.url, output_path)
+        await asyncio.to_thread(urllib.request.urlretrieve, first_data.url, output_path)
     else:
         return False, None
 
-    with Image.open(output_path) as pil_img:
-        width, height = pil_img.size
+    def _read_image_size() -> tuple[int, int]:
+        with Image.open(output_path) as pil_img:
+            return pil_img.size
+
+    width, height = await asyncio.to_thread(_read_image_size)
 
     return True, {"width": width, "height": height}
+
+
+async def _generate_asset_item(
+    *,
+    client: AsyncOpenAI,
+    settings: Any,
+    item: Any,
+    output_path: Path,
+    semaphore: asyncio.Semaphore,
+) -> tuple[str, AssetItem | None, dict[str, Any] | None]:
+    async with semaphore:
+        try:
+            print_stderr(f"正在为页面 {item.page_id} 生成图像 ({settings.image_model})...")
+            success, dims = await _generate_image(client, settings.image_model, item.prompt, output_path)
+            if success and dims:
+                return (
+                    item.page_id,
+                    AssetItem(
+                        page_id=item.page_id,
+                        file_path=f"assets/{item.page_id}.png",
+                        width=dims["width"],
+                        height=dims["height"],
+                        provider="volcengine",
+                        model=settings.image_model,
+                    ),
+                    None,
+                )
+            return item.page_id, None, {"page_id": item.page_id, "error": "API response contained no image data"}
+        except Exception as exc:
+            return item.page_id, None, {"page_id": item.page_id, "error": str(exc)}
+
+
+async def _run_asset_tasks(tasks: list[Any]) -> list[tuple[str, AssetItem | None, dict[str, Any] | None]]:
+    return await asyncio.gather(*tasks)
+
+
+async def _run_asset_generation(
+    *,
+    client: AsyncOpenAI,
+    settings: Any,
+    requests: list[tuple[Any, Path]],
+    parallel: int,
+) -> list[tuple[str, AssetItem | None, dict[str, Any] | None]]:
+    semaphore = asyncio.Semaphore(parallel)
+    tasks = [
+        _generate_asset_item(
+            client=client,
+            settings=settings,
+            item=item,
+            output_path=output_path,
+            semaphore=semaphore,
+        )
+        for item, output_path in requests
+    ]
+    return await _run_asset_tasks(tasks)
 
 
 def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
@@ -86,7 +157,7 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
     state = load_state(project_dir)
 
     # 2. 初始化 Ofox 客户端
-    client = OpenAI(
+    client = AsyncOpenAI(
         base_url=settings.ofox_base_url,
         api_key=settings.ofox_api_key,
     )
@@ -120,7 +191,9 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
 
     failed_pages = []
 
-    # 5. 循环调用图像生成 API
+    # 5. 并发调用图像生成 API
+    parallel = max(1, args.parallel)
+    requests_to_run: list[tuple[Any, Path]] = []
     for item in items_to_generate:
         output_path = assets_dir / f"{item.page_id}.png"
 
@@ -138,25 +211,21 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
             print_stderr(f"跳过已存在的页面: {item.page_id}")
             continue
 
-        try:
-            print_stderr(f"正在为页面 {item.page_id} 生成图像 ({settings.image_model})...")
+        requests_to_run.append((item, output_path))
 
-            success, dims = _generate_image(client, settings.image_model, item.prompt, output_path)
-
-            if success and dims:
-                generated_items_dict[item.page_id] = AssetItem(
-                    page_id=item.page_id,
-                    file_path=f"assets/{item.page_id}.png",
-                    width=dims["width"],
-                    height=dims["height"],
-                    provider="volcengine",
-                    model=settings.image_model
-                )
-            else:
-                failed_pages.append({"page_id": item.page_id, "error": "API response contained no image data"})
-
-        except Exception as e:
-            failed_pages.append({"page_id": item.page_id, "error": str(e)})
+    if requests_to_run:
+        for page_id, asset_item, failure in asyncio.run(
+            _run_asset_generation(
+                client=client,
+                settings=settings,
+                requests=requests_to_run,
+                parallel=parallel,
+            )
+        ):
+            if asset_item is not None:
+                generated_items_dict[page_id] = asset_item
+            if failure is not None:
+                failed_pages.append(failure)
 
     # 6. 更新资产清单 (manifest.json)
     final_items = sorted(generated_items_dict.values(), key=lambda x: x.page_id)
@@ -192,6 +261,7 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(prog=TOOL_NAME)
     _add_script_args(parser)
+    parser.add_argument("--parallel", type=int, default=1, help="并发生成图片数量")
     return run_cli(handle_generate, tool=TOOL_NAME, parser=parser)
 
 
