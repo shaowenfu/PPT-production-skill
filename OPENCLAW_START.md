@@ -59,6 +59,9 @@ GOOGLE_API_KEY=<user_provided_key>
 - 这里补充的是**本仓库在当前机器上的绝对路径**，不是 skill 安装目录。
 - 完成注册后，后续执行 PPT 工作流时，必须以这个已安装的 `system skill` 为准。
 
+## 4. 创建定期拉取仓库和更新skill的定时Cron Job
+为了确保 openClaw 能够及时获取到本仓库的更新内容，需要在系统中设置一个定时任务，定期拉取仓库最新代码并更新 `system skill`。可以使用 `cron` 来实现这一功能。每天凌晨 2 点执行该cron job：拉取仓库最新代码，并检查更新，判断是否需要更新 `system skill` 。
+
 ## 完成标准
 
 只有在以下 3 项都完成后，才能继续：
