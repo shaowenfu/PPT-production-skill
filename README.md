@@ -29,7 +29,7 @@
 3.  **Slide Planning**: 生成 25 页逻辑规划（A/B 类页面分布）。
 4.  **Deep Content Generation**: 分批扩写 200-400 字的专业业务内容。
 5.  **Visual Prompt Design**: 蒸馏文案，设计导演级图像生成提示词。
-6.  **Visual Asset Generate**: 调用 Doubao 图像大模型批量渲染视觉资产。
+6.  **Visual Asset Generate**: 默认调用 Google 图像大模型批量渲染视觉资产，可切回 Doubao。
 7.  **PPT Assemble**: 将所有资产封装为最终的 `.pptx`。
 
 ---
@@ -44,7 +44,7 @@
 ├── scripts/              # 7 个原子化执行脚本
 ├── PPT/                  # 项目工作区（Workspace）：存放每个 PPT 的中间产物
 ├── requirements.txt      # 依赖清单
-└── .env.example          # 环境变量模板（DeepSeek & Ofox）
+└── .env.example          # 环境变量模板（Google 默认，DeepSeek / Ofox 可选）
 ```
 
 ---
@@ -68,11 +68,12 @@ pip install -r requirements.txt
 
 ### 3. 配置秘钥
 将 `.env.example` 复制为 `.env` 并填入你的 API Key：
-- `DEEPSEEK_API_KEY`: 用于文本生成。
-- `OFOX_API_KEY`: 用于图像生成（火山引擎 Doubao）。
+- `GOOGLE_API_KEY`: 默认用于文本生成与图像生成。
+- `DEEPSEEK_API_KEY`: 可选，用于文本生成 fallback。
+- `OFOX_API_KEY`: 可选，用于图像生成 fallback（火山引擎 Doubao）。
 
 ### 4. 平台入口
-固定 `aspect ratio` 为 `16:9`，图像尺寸固定为 `1792x1024`。
+固定 `aspect ratio` 为 `16:9`。默认 Google 图像生成请求 `image_size="2K"`。
 
 ```bash
 ./skill.sh --step init --project-dir PPT/demo

@@ -1,8 +1,9 @@
 # 交互说明
 当用户明确提到制作PPT或者使用本SKILL时，开始以下流程。
 首先检查项目根目录下的 `.env` 中是否有以下必需的环境变量：
-- `DEEPSEEK_API_KEY`：用于文本生成（文案扩写、提示词设计）
-- `OFOX_API_KEY`：用于图像生成（火山引擎 Doubao）
+- `GOOGLE_API_KEY`：默认用于文本生成（文案扩写、提示词设计）和图像生成
+- `DEEPSEEK_API_KEY`：可选，用于文本生成 fallback
+- `OFOX_API_KEY`：可选，用于图像生成 fallback（火山引擎 Doubao）
 默认自动执行前五步，第五步执行完毕后停下来询问用户是否继续。
 
 # 第0步
@@ -13,7 +14,7 @@
 - **参数**：`--project-dir`, `--project-name`
 - **默认页数**：除非用户指定，否则规划按 **25页** 规模进行。
 - **调用方式**：
-`python3 scripts/project_init.py --project-dir (这里由特定机器上的openClaw自己填充)/PPT/项目名 --project-name "PPT名称"`
+`python scripts/project_init.py --project-dir (这里由特定机器上的openClaw自己填充)/PPT/项目名 --project-name "PPT名称"`
 
 # 第二步
 提取用户提供的 PPT 内容大纲，写入大纲文件
@@ -90,8 +91,9 @@
 批量生成图片并封装 PPTX
 - **工具**：`scripts/visual_asset_generate.py` 和 `scripts/ppt_assemble.py`
 - **模型配置**：
-  - 文本生成：DeepSeek (`deepseek-chat`)
-  - 图像生成：火山引擎 Doubao (`volcengine/doubao-seedream-5.0-lite`)
+  - 默认文本生成：Google Gemini (`gemini-3-flash-preview`)
+  - 默认图像生成：Google Gemini Image (`gemini-3.1-flash-image-preview`)
+  - fallback：DeepSeek / Doubao
 - **调用示例**：
   ```bash
   # 生成图片

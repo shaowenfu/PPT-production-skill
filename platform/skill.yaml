@@ -5,10 +5,9 @@ entrypoint: ./skill.sh
 working_directory: .
 default_step: project_init
 fixed_aspect_ratio: "16:9"
-image_size: "1792x1024"
+image_size: "2K"
 required_env:
-  - DEEPSEEK_API_KEY
-  - OFOX_API_KEY
+  - GOOGLE_API_KEY
 steps:
   - project_init
   - slide_draft_generate

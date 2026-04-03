@@ -26,24 +26,29 @@ Do not redesign this rendering model during execution. Follow it.
 
 1. Treat the directory containing `SKILL.md` as `repo root`.
 2. Resolve all paths relative to `repo root`. Never assume any absolute filesystem path.
-3. If the repo is not present locally yet, clone it first and then work from that cloned `repo root`.
+3. If the repo is not present locally yet, clone it first from `https://github.com/shaowenfu/PPT-production-skill.git` and then work from that cloned `repo root`.
 4. Before any Python step:
    - if `venv/` does not exist, run `python -m venv venv`
    - run `source venv/bin/activate`
    - run `pip install -r requirements.txt`
 5. Keep `aspect ratio` fixed at `16:9`.
-6. Keep image size fixed at `1792x1024`.
+6. For Google image generation, request `image_size="2K"` and keep `aspect ratio` at `16:9`.
 7. Prefer `./skill.sh` for all script-backed steps. It is the stable thin entry.
 8. Keep atomic script boundaries intact. Do not merge the workflow into one custom script.
 9. When resuming a project, read `PPT/<project_id>/state.json` first.
 10. Required credentials:
-   - `DEEPSEEK_API_KEY` for text generation
-   - `OFOX_API_KEY` for image generation
+   - `GOOGLE_API_KEY` for default text generation and image generation, ask user to set it up in .env or ask them to provide it and write into .env directly if missing(**required**)
+   - `DEEPSEEK_API_KEY` for text generation fallback(**optional**)
+   - `OFOX_API_KEY` for image generation fallback(**optional**)
+11. Default providers are hardcoded in `pptflow/config.py`:
+   - text: `google`
+   - image: `google`
+   - switch to fallback providers by editing those constants directly
 
 ## Default execution policy
 
-- If the user asks for a final PPT, run the full seven-step workflow continuously.
-- Do not stop for intermediate review unless the user explicitly asks to review `outline`, `plan`, `prompts`, or another intermediate artifact.
+- If the user explicitly asks for a final PPT, run the full seven-step workflow continuously.
+- Stop automatically after step 5 (Visual Prompt Design) to ask the user if they want to continue with asset generation and assembly. This is the most resource-intensive part and may require user review of the prompts before proceeding.
 - Only stop automatically on real blockers:
   - missing source material
   - missing credentials
@@ -90,7 +95,7 @@ Done when:
 ### Step 2: Outline Ingest
 
 Goal:
-Turn the user topic or source outline into a production-ready chapter structure.
+Turn the user raw material or source outline into a production-ready chapter structure and ask for user confirmation.
 
 Action:
 Write `PPT/<project_id>/outline/outline.md` directly. Do not use a script.
@@ -243,7 +248,7 @@ Output:
 
 Done when:
 - requested images exist
-- image size is `1792x1024`
+- image aspect ratio is `16:9`
 
 ### Step 7: PPT Assemble
 

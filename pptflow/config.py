@@ -1,8 +1,9 @@
 """Configuration loading for the PPT workflow toolchain.
 
 简化配置：
-- 文本生成：统一使用 DeepSeek (deepseek-chat)
-- 图像生成：统一使用 Ofox/Doubao (volcengine/doubao-seedream-5.0-lite)
+- 默认文本生成：Google Gemini
+- 默认图像生成：Google Gemini Image
+- 兼容切换：DeepSeek / Doubao
 """
 
 from __future__ import annotations
@@ -14,18 +15,17 @@ from typing import Any, Mapping, Optional
 
 from .errors import InvalidEnvironmentError, MissingAPIKeyError
 
+DEFAULT_TEXT_PROVIDER = "google"
+DEFAULT_IMAGE_PROVIDER = "google"
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_OFOX_BASE_URL = "https://api.ofox.ai/v1"
-DEFAULT_TEXT_MODEL = "deepseek-chat"
-DEFAULT_IMAGE_MODEL = "volcengine/doubao-seedream-5.0-lite"
+DEFAULT_GOOGLE_TEXT_MODEL = "gemini-3-flash-preview"
+DEFAULT_DEEPSEEK_TEXT_MODEL = "deepseek-chat"
+DEFAULT_GOOGLE_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+DEFAULT_DOUBAO_IMAGE_MODEL = "volcengine/doubao-seedream-5.0-lite"
 DEFAULT_LANGUAGE = "zh-CN"
 DEFAULT_ASPECT_RATIO = "16:9"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 120.0
-
-REQUIRED_SECRET_ENV_VARS = (
-    "DEEPSEEK_API_KEY",
-    "OFOX_API_KEY",
-)
 
 
 def _load_dotenv(env_file: Optional[Path] = None) -> None:
@@ -59,10 +59,13 @@ class Settings:
     """PPT 工作流配置
 
     必需：
-        deepseek_api_key: DeepSeek API Key（用于文本生成）
-        ofox_api_key: Ofox API Key（用于图像生成）
+        google_api_key: Google API Key（默认文本/图像生成）
 
     可选：
+        deepseek_api_key: DeepSeek API Key（文本生成兼容切换）
+        ofox_api_key: Ofox API Key（图像生成兼容切换）
+        text_provider: 文本生成 Provider
+        image_provider: 图像生成 Provider
         deepseek_base_url: DeepSeek API 地址
         ofox_base_url: Ofox API 地址
         text_model: 文本生成模型名称
@@ -71,20 +74,49 @@ class Settings:
         default_aspect_ratio: 默认宽高比
         request_timeout_seconds: 请求超时时间
     """
-    deepseek_api_key: str
-    ofox_api_key: str
+    google_api_key: str = ""
+    deepseek_api_key: str = ""
+    ofox_api_key: str = ""
+    text_provider: str = DEFAULT_TEXT_PROVIDER
+    image_provider: str = DEFAULT_IMAGE_PROVIDER
     deepseek_base_url: str = DEFAULT_DEEPSEEK_BASE_URL
     ofox_base_url: str = DEFAULT_OFOX_BASE_URL
-    text_model: str = DEFAULT_TEXT_MODEL
-    image_model: str = DEFAULT_IMAGE_MODEL
+    text_model: str = DEFAULT_GOOGLE_TEXT_MODEL
+    image_model: str = DEFAULT_GOOGLE_IMAGE_MODEL
     default_language: str = DEFAULT_LANGUAGE
     default_aspect_ratio: str = DEFAULT_ASPECT_RATIO
     request_timeout_seconds: float = DEFAULT_REQUEST_TIMEOUT_SECONDS
 
 
+def _default_text_model(provider: str) -> str:
+    if provider == "google":
+        return DEFAULT_GOOGLE_TEXT_MODEL
+    if provider == "deepseek":
+        return DEFAULT_DEEPSEEK_TEXT_MODEL
+    raise InvalidEnvironmentError(
+        "不支持的文本 Provider",
+        details={"provider": provider, "supported": ["google", "deepseek"]},
+    )
+
+
+def _default_image_model(provider: str) -> str:
+    if provider == "google":
+        return DEFAULT_GOOGLE_IMAGE_MODEL
+    if provider == "doubao":
+        return DEFAULT_DOUBAO_IMAGE_MODEL
+    raise InvalidEnvironmentError(
+        "不支持的图像 Provider",
+        details={"provider": provider, "supported": ["google", "doubao"]},
+    )
+
+
 def read_settings_values(env_file: Optional[Path] = None) -> dict[str, str]:
     _load_dotenv(env_file)
     return {
+        "GOOGLE_API_KEY": (
+            os.environ.get("GOOGLE_API_KEY", "").strip()
+            or os.environ.get("GEMINI_API_KEY", "").strip()
+        ),
         "DEEPSEEK_API_KEY": os.environ.get("DEEPSEEK_API_KEY", "").strip(),
         "OFOX_API_KEY": os.environ.get("OFOX_API_KEY", "").strip(),
         "DEEPSEEK_BASE_URL": os.environ.get("DEEPSEEK_BASE_URL", "").strip(),
@@ -97,16 +129,46 @@ def read_settings_values(env_file: Optional[Path] = None) -> dict[str, str]:
     }
 
 
-def _missing_required_secret_env_vars(raw_values: Mapping[str, str]) -> list[str]:
-    return [env_var for env_var in REQUIRED_SECRET_ENV_VARS if not raw_values.get(env_var, "").strip()]
+def _required_secret_env_vars(*, text_provider: str, image_provider: str) -> tuple[str, ...]:
+    required: list[str] = []
+    if text_provider == "google" or image_provider == "google":
+        required.append("GOOGLE_API_KEY")
+    if text_provider == "deepseek":
+        required.append("DEEPSEEK_API_KEY")
+    if image_provider == "doubao":
+        required.append("OFOX_API_KEY")
+    return tuple(dict.fromkeys(required))
+
+
+def _missing_required_secret_env_vars(
+    raw_values: Mapping[str, str],
+    *,
+    text_provider: str,
+    image_provider: str,
+) -> list[str]:
+    required_env_vars = _required_secret_env_vars(
+        text_provider=text_provider,
+        image_provider=image_provider,
+    )
+    return [env_var for env_var in required_env_vars if not raw_values.get(env_var, "").strip()]
 
 
 def validate_settings(raw_values: Mapping[str, str]) -> Settings:
-    missing = _missing_required_secret_env_vars(raw_values)
+    text_provider = DEFAULT_TEXT_PROVIDER
+    image_provider = DEFAULT_IMAGE_PROVIDER
+    missing = _missing_required_secret_env_vars(
+        raw_values,
+        text_provider=text_provider,
+        image_provider=image_provider,
+    )
     if missing:
         raise MissingAPIKeyError(
             f"缺少必需的 API Key: {', '.join(missing)}",
-            details={"missing": missing},
+            details={
+                "missing": missing,
+                "text_provider": text_provider,
+                "image_provider": image_provider,
+            },
         )
 
     timeout_raw = raw_values.get("PPT_REQUEST_TIMEOUT_SECONDS", "").strip()
@@ -119,12 +181,15 @@ def validate_settings(raw_values: Mapping[str, str]) -> Settings:
         ) from exc
 
     return Settings(
+        google_api_key=raw_values.get("GOOGLE_API_KEY", ""),
         deepseek_api_key=raw_values["DEEPSEEK_API_KEY"],
         ofox_api_key=raw_values["OFOX_API_KEY"],
+        text_provider=text_provider,
+        image_provider=image_provider,
         deepseek_base_url=raw_values.get("DEEPSEEK_BASE_URL") or DEFAULT_DEEPSEEK_BASE_URL,
         ofox_base_url=raw_values.get("OFOX_BASE_URL") or DEFAULT_OFOX_BASE_URL,
-        text_model=raw_values.get("PPT_TEXT_MODEL") or DEFAULT_TEXT_MODEL,
-        image_model=raw_values.get("PPT_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL,
+        text_model=raw_values.get("PPT_TEXT_MODEL") or _default_text_model(text_provider),
+        image_model=raw_values.get("PPT_IMAGE_MODEL") or _default_image_model(image_provider),
         default_language=raw_values.get("PPT_DEFAULT_LANGUAGE") or DEFAULT_LANGUAGE,
         default_aspect_ratio=raw_values.get("PPT_DEFAULT_ASPECT_RATIO") or DEFAULT_ASPECT_RATIO,
         request_timeout_seconds=request_timeout_seconds,
@@ -133,16 +198,27 @@ def validate_settings(raw_values: Mapping[str, str]) -> Settings:
 
 def settings_status(env_file: Optional[Path] = None) -> dict[str, Any]:
     raw_values = read_settings_values(env_file)
-    missing = _missing_required_secret_env_vars(raw_values)
+    text_provider = DEFAULT_TEXT_PROVIDER
+    image_provider = DEFAULT_IMAGE_PROVIDER
+    missing = _missing_required_secret_env_vars(
+        raw_values,
+        text_provider=text_provider,
+        image_provider=image_provider,
+    )
     return {
         "configured": not missing,
         "missing": missing,
-        "present": {env_var: bool(raw_values.get(env_var)) for env_var in REQUIRED_SECRET_ENV_VARS},
+        "present": {
+            env_var: bool(raw_values.get(env_var))
+            for env_var in ("GOOGLE_API_KEY", "DEEPSEEK_API_KEY", "OFOX_API_KEY")
+        },
         "defaults": {
+            "text_provider": text_provider,
+            "image_provider": image_provider,
             "deepseek_base_url": raw_values.get("DEEPSEEK_BASE_URL") or DEFAULT_DEEPSEEK_BASE_URL,
             "ofox_base_url": raw_values.get("OFOX_BASE_URL") or DEFAULT_OFOX_BASE_URL,
-            "text_model": raw_values.get("PPT_TEXT_MODEL") or DEFAULT_TEXT_MODEL,
-            "image_model": raw_values.get("PPT_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL,
+            "text_model": raw_values.get("PPT_TEXT_MODEL") or _default_text_model(text_provider),
+            "image_model": raw_values.get("PPT_IMAGE_MODEL") or _default_image_model(image_provider),
             "default_language": raw_values.get("PPT_DEFAULT_LANGUAGE") or DEFAULT_LANGUAGE,
             "default_aspect_ratio": raw_values.get("PPT_DEFAULT_ASPECT_RATIO") or DEFAULT_ASPECT_RATIO,
         },

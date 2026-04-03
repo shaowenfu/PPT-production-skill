@@ -2,7 +2,7 @@
 """Visual Prompt Design Script (The Visual Director).
 
 This is Step 5 in the PPT workflow. It reads plan.json and draft.json
-to generate high-impact visual prompts for image models using DeepSeek.
+to generate high-impact visual prompts for image models using the configured text provider.
 
 Usage:
     python scripts/visual_prompt_design.py --project-dir PPT/03 [--batch-size 5]
@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import time
 from datetime import datetime
 from typing import Any
 
@@ -19,6 +20,7 @@ from _bootstrap import bootstrap_project
 
 bootstrap_project(__file__)
 
+from google import genai
 from openai import AsyncOpenAI, RateLimitError
 
 from pptflow.cli import print_stderr, run_cli
@@ -35,7 +37,29 @@ MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 
 
-async def _generate_json_text(
+def _is_google_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    class_name = exc.__class__.__name__.lower()
+    return (
+        "429" in message
+        or "rate limit" in message
+        or "resource_exhausted" in message
+        or "quota" in message
+        or "ratelimit" in class_name
+    )
+
+
+def _extract_google_text(response: Any) -> str:
+    response_text = getattr(response, "text", None)
+    if response_text:
+        return response_text
+
+    parts = getattr(response, "parts", None) or []
+    text_parts = [part.text for part in parts if getattr(part, "text", None)]
+    return "\n".join(text_parts).strip()
+
+
+async def _generate_json_text_with_deepseek(
     client: AsyncOpenAI,
     model: str,
     system_prompt: str,
@@ -66,6 +90,72 @@ async def _generate_json_text(
 
     content = response.choices[0].message.content
     return parse_llm_json(content, source="visual_prompt_design 模型响应")
+
+
+def _generate_json_text_with_google(
+    *,
+    api_key: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.8,
+) -> dict[str, Any]:
+    combined_prompt = (
+        f"System Instructions:\n{system_prompt}\n\n"
+        f"User Task:\n{user_prompt}\n\n"
+        "Return JSON only."
+    )
+
+    for attempt in range(MAX_RATE_LIMIT_RETRIES + 1):
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=combined_prompt,
+                config={"temperature": temperature},
+            )
+            break
+        except Exception as exc:
+            if not _is_google_rate_limit_error(exc) or attempt >= MAX_RATE_LIMIT_RETRIES:
+                raise InputError(f"LLM 调用失败: {exc}") from exc
+            delay = RATE_LIMIT_RETRY_DELAY_SECONDS * (attempt + 1)
+            print_stderr(f"Google 文本生成触发 429，{delay:.0f} 秒后重试...")
+            time.sleep(delay)
+
+    content = _extract_google_text(response)
+    if not content:
+        raise InputError("LLM 调用失败: Google 模型未返回文本内容")
+    return parse_llm_json(content, source="visual_prompt_design Google 模型响应")
+
+
+async def _generate_json_text(
+    *,
+    client: AsyncOpenAI | None,
+    settings: Any,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.8,
+) -> dict[str, Any]:
+    if settings.text_provider == "google":
+        return await asyncio.to_thread(
+            _generate_json_text_with_google,
+            api_key=settings.google_api_key,
+            model=settings.text_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+        )
+    if settings.text_provider == "deepseek":
+        if client is None:
+            raise InputError("DeepSeek 客户端未初始化")
+        return await _generate_json_text_with_deepseek(
+            client=client,
+            model=settings.text_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+        )
+    raise InputError(f"不支持的文本 Provider: {settings.text_provider}")
 
 
 def _build_page_brief(plan_page: Any, draft_content: str) -> str:
@@ -184,7 +274,7 @@ Additional Directives:
 
 async def _generate_prompt_batch(
     *,
-    client: AsyncOpenAI,
+    client: AsyncOpenAI | None,
     settings: Any,
     plan: SlidePlanDocument,
     draft_batch: list[dict[str, Any]],
@@ -193,11 +283,11 @@ async def _generate_prompt_batch(
 ) -> list[PromptItem]:
     async with semaphore:
         print_stderr(
-            f"使用 DeepSeek/{settings.text_model} 导演第 {start_index + 1} 至 {start_index + len(draft_batch)} 页的视觉设计..."
+            f"使用 {settings.text_provider}/{settings.text_model} 导演第 {start_index + 1} 至 {start_index + len(draft_batch)} 页的视觉设计..."
         )
         payload = await _generate_json_text(
             client=client,
-            model=settings.text_model,
+            settings=settings,
             system_prompt=_build_system_prompt(),
             user_prompt=_build_user_prompt(plan, draft_batch),
             temperature=0.4,
@@ -207,7 +297,7 @@ async def _generate_prompt_batch(
 
 async def _run_batches(
     *,
-    client: AsyncOpenAI,
+    client: AsyncOpenAI | None,
     settings: Any,
     plan: SlidePlanDocument,
     draft: SlideDraftDocument,
@@ -242,11 +332,13 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     settings = load_settings()
     state = load_state(project_dir)
 
-    # 1. 初始化 DeepSeek 客户端
-    client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-    )
+    # 1. 初始化兼容客户端
+    client: AsyncOpenAI | None = None
+    if settings.text_provider == "deepseek":
+        client = AsyncOpenAI(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+        )
 
     # 2. 读取上下文
     plan_path = project_dir / "plan" / "plan.json"
@@ -262,6 +354,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
                 "project_id": state["project_id"],
                 "warnings": [f"没有找到匹配的页面: {args.target_pages}"],
                 "metrics": {"total_prompts": 0},
+                "provider": settings.text_provider,
                 "model": settings.text_model,
             }
 
@@ -313,6 +406,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
         "project_id": state["project_id"],
         "artifacts": ["prompts/prompts.json"],
         "metrics": {"total_prompts": len(all_prompts)},
+        "provider": settings.text_provider,
         "model": settings.text_model,
     }
 
