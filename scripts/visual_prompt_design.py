@@ -2,7 +2,8 @@
 """Visual Prompt Design Script (The Visual Director).
 
 This is Step 5 in the PPT workflow. It reads plan.json and draft.json
-to generate high-impact visual prompts for image models using the configured text provider.
+to generate high-impact visual prompts and user-confirmable on-slide copy
+using the configured text provider.
 
 Usage:
     python scripts/visual_prompt_design.py --project-dir PPT/03 [--batch-size 5]
@@ -29,7 +30,14 @@ from pptflow.errors import InputError
 from pptflow.json_io import read_json, write_json
 from pptflow.llm_json import parse_llm_json
 from pptflow.paths import resolve_project_dir
-from pptflow.schemas import SlideDraftDocument, SlidePlanDocument, PromptDocument, PromptItem
+from pptflow.schemas import (
+    PromptDocument,
+    PromptItem,
+    ScreenTextDocument,
+    ScreenTextItem,
+    SlideDraftDocument,
+    SlidePlanDocument,
+)
 from pptflow.state_store import append_transition, load_state, save_state, set_artifact
 
 TOOL_NAME = "visual_prompt_design"
@@ -185,7 +193,7 @@ def _build_system_prompt() -> str:
    - composition
    - text placement
    - information hierarchy
-4. 最终输出一个可以直接交给图像模型的 prompt。
+4. 最终同时输出“最终上屏文字”和一个可以直接交给图像模型的 prompt。
 
 ## 语言规则
 1. `prompt` 的描述性部分必须使用英文。
@@ -228,12 +236,17 @@ def _build_system_prompt() -> str:
 4. 禁止反复使用固定风格口头禅、固定材质、固定主物体、固定镜头模板。
 
 ## 输出要求
-输出必须是 JSON 对象，包含 `prompts` 数组。
+输出必须是 JSON 对象，包含 `items` 数组。
 每个项只包含：
 - `page_id`
+- `text`
 - `prompt`
 
-`prompt` 必须是紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点。"""
+其中：
+1. `text` 是最终上屏的中文文字成稿，只保留用户会在 PPT 页面上看到的内容。
+2. `A` 页的 `text` 用多行纯文本表达：第一行标题，后续每行一个要点，使用 `- ` 开头。
+3. `B` 页的 `text` 默认只写 1 行金句；如果确实需要副标题，可放在第二行。
+4. `prompt` 必须是紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。"""
 
 
 
@@ -261,12 +274,13 @@ Current Batch:
 {batch_detail}
 
 Additional Directives:
-- Generate one prompt per page in the current batch.
+- Generate one design item per page in the current batch.
 - Keep the deck visually coherent but not repetitive.
 - Use different compositions across adjacent pages.
 - Make independent design decisions for each page based on its theme, category, and layout type.
 - For A pages, prioritize readable Chinese information layout over theatrical visual effects.
 - For B pages, prioritize a strong thematic image derived from the page topic, not generic sci-fi.
+- The `text` field is the final on-slide copy for user review.
 - The descriptive prompt language must be English.
 - Any text to render on the slide must remain Chinese inside quotes.
 - Do not output explanations. Output JSON only."""
@@ -280,7 +294,7 @@ async def _generate_prompt_batch(
     draft_batch: list[dict[str, Any]],
     start_index: int,
     semaphore: asyncio.Semaphore,
-) -> list[PromptItem]:
+) -> tuple[list[PromptItem], list[ScreenTextItem]]:
     async with semaphore:
         print_stderr(
             f"使用 {settings.text_provider}/{settings.text_model} 导演第 {start_index + 1} 至 {start_index + len(draft_batch)} 页的视觉设计..."
@@ -292,7 +306,13 @@ async def _generate_prompt_batch(
             user_prompt=_build_user_prompt(plan, draft_batch),
             temperature=0.4,
         )
-    return [PromptItem(page_id=item["page_id"], prompt=item["prompt"]) for item in payload.get("prompts", [])]
+    prompt_items: list[PromptItem] = []
+    screen_text_items: list[ScreenTextItem] = []
+    for item in payload.get("items", []):
+        page_id = item["page_id"]
+        screen_text_items.append(ScreenTextItem(page_id=page_id, text=item["text"].strip()))
+        prompt_items.append(PromptItem(page_id=page_id, prompt=item["prompt"].strip()))
+    return prompt_items, screen_text_items
 
 
 async def _run_batches(
@@ -303,7 +323,7 @@ async def _run_batches(
     draft: SlideDraftDocument,
     batch_size: int,
     parallel: int,
-) -> list[PromptItem]:
+) -> tuple[list[PromptItem], list[ScreenTextItem]]:
     semaphore = asyncio.Semaphore(parallel)
     tasks = []
     for i in range(0, len(draft.slides), batch_size):
@@ -322,9 +342,11 @@ async def _run_batches(
 
     results = await asyncio.gather(*tasks)
     all_prompts: list[PromptItem] = []
-    for batch_prompts in results:
+    all_screen_texts: list[ScreenTextItem] = []
+    for batch_prompts, batch_screen_texts in results:
         all_prompts.extend(batch_prompts)
-    return all_prompts
+        all_screen_texts.extend(batch_screen_texts)
+    return all_prompts, all_screen_texts
 
 
 def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
@@ -361,7 +383,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     # 3. 分批并发生成
     batch_size = max(1, args.batch_size)
     parallel = max(1, args.parallel)
-    all_prompts = asyncio.run(
+    all_prompts, all_screen_texts = asyncio.run(
         _run_batches(
             client=client,
             settings=settings,
@@ -373,8 +395,18 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     )
 
     # 4. 写入结果
+    screen_text_file = project_dir / "prompts" / "screen_text.json"
     prompt_file = project_dir / "prompts" / "prompts.json"
     prompt_file.parent.mkdir(exist_ok=True)
+    if screen_text_file.exists():
+        existing_screen_doc = ScreenTextDocument(**read_json(screen_text_file))
+        screen_text_map = {item.page_id: item for item in existing_screen_doc.items}
+        for item in all_screen_texts:
+            screen_text_map[item.page_id] = item
+        merged_screen_items = sorted(screen_text_map.values(), key=lambda x: int(x.page_id[1:]))
+    else:
+        merged_screen_items = all_screen_texts
+
     if prompt_file.exists():
         existing_doc = PromptDocument(**read_json(prompt_file))
         prompt_map = {item.page_id: item for item in existing_doc.items}
@@ -384,11 +416,14 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
     else:
         merged_items = all_prompts
 
+    screen_text_doc = ScreenTextDocument(project_id=state["project_id"], items=merged_screen_items)
     prompt_doc = PromptDocument(project_id=state["project_id"], items=merged_items)
+    write_json(screen_text_file, screen_text_doc.model_dump())
     write_json(prompt_file, prompt_doc.model_dump())
 
     # 5. 更新状态
     previous_state = state["current_state"]
+    state = set_artifact(state, "screen_text", "prompts/screen_text.json", exists=True)
     state = set_artifact(state, "prompts", "prompts/prompts.json", exists=True)
     state["current_state"] = "PromptsGenerated"
     state["last_completed_step"] = TOOL_NAME
@@ -398,14 +433,17 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
         "to_state": "PromptsGenerated",
         "trigger": "tool_success",
         "step": TOOL_NAME,
-        "note": f"Generated {len(all_prompts)} visual prompts"
+        "note": f"Generated {len(all_prompts)} visual prompts and screen text"
     })
     save_state(project_dir, state)
 
     return {
         "project_id": state["project_id"],
-        "artifacts": ["prompts/prompts.json"],
-        "metrics": {"total_prompts": len(all_prompts)},
+        "artifacts": ["prompts/screen_text.json", "prompts/prompts.json"],
+        "metrics": {
+            "total_prompts": len(all_prompts),
+            "total_screen_text_items": len(all_screen_texts),
+        },
         "provider": settings.text_provider,
         "model": settings.text_model,
     }

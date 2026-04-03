@@ -79,6 +79,25 @@ class PromptDocument(ContractModel):
         return value
 
 
+class ScreenTextItem(ContractModel):
+    page_id: str
+    text: str
+
+
+class ScreenTextDocument(ContractModel):
+    project_id: str
+    items: List[ScreenTextItem] = Field(default_factory=list)
+
+    @validator("items")
+    def items_must_be_unique_and_non_empty(cls, value: List[ScreenTextItem]) -> List[ScreenTextItem]:
+        page_ids = [item.page_id for item in value]
+        if len(page_ids) != len(set(page_ids)):
+            raise ValueError("screen text page_id values must be unique")
+        if not value:
+            raise ValueError("screen text document must contain at least one item")
+        return value
+
+
 class AssetItem(ContractModel):
     page_id: str
     file_path: str
@@ -117,6 +136,8 @@ __all__ = [
     "PlanPage",
     "PromptDocument",
     "PromptItem",
+    "ScreenTextDocument",
+    "ScreenTextItem",
     "SlideDraftDocument",
     "SlideDraftSlide",
     "SlideIntent",

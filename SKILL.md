@@ -47,8 +47,17 @@ Do not redesign this rendering model during execution. Follow it.
 
 ## Default execution policy
 
-- If the user explicitly asks for a final PPT, run the full seven-step workflow continuously.
-- Stop automatically after step 5 (Visual Prompt Design) to ask the user if they want to continue with asset generation and assembly. This is the most resource-intensive part and may require user review of the prompts before proceeding.
+- Do not run the full seven-step workflow continuously by default.
+- After each step that creates or changes an artifact, stop and ask the user to review that artifact before proceeding.
+- Use the artifact itself as the review surface. Do not dump the entire prompt into chat unless the user asks for it.
+- The primary review files are:
+  - step 2: `outline/outline.md`
+  - step 3: `plan/plan.json`
+  - step 4: `draft/slide_draft.json`
+  - step 5: `prompts/screen_text.json`
+  - step 6: generated images under `assets/`
+- `prompts/prompts.json` is the machine-facing file for image generation. Show it only when the user wants full prompt detail or when you need to manually sync it with approved on-slide text.
+- If the user edits `prompts/screen_text.json`, update `prompts/prompts.json` so the quoted Chinese text matches the approved screen text before running step 6.
 - Only stop automatically on real blockers:
   - missing source material
   - missing credentials
@@ -63,7 +72,7 @@ Do not redesign this rendering model during execution. Follow it.
 | --- | --- | --- | --- |
 | `init` | script | creates workspace and state files | one project |
 | `draft` | script | generates deep page content into `draft/slide_draft.json` | only requested `page_ids` |
-| `prompt` | script | generates visual prompts from draft content | supports full run, selected pages, and parallel batches |
+| `prompt` | script | generates user-reviewable screen text plus visual prompts from draft content | supports full run, selected pages, and parallel batches |
 | `assets` | script | generates slide images from prompts | supports full run, selected pages, and parallel generation |
 | `assemble` | script | packs images into `deck.pptx` and writes notes | one final deck |
 
@@ -200,11 +209,12 @@ Output:
 Done when:
 - requested pages exist in `slide_draft.json`
 - content is substantive, not just title restatement
+- stop and ask the user to review `slide_draft.json` before step 5
 
 ### Step 5: Visual Prompt Design
 
 Goal:
-Convert slide draft content into image-generation prompts.
+Convert slide draft content into user-confirmable on-slide text and image-generation prompts.
 
 Action:
 Run one page:
@@ -218,12 +228,20 @@ Run full or batch generation:
 ```
 
 Output:
+- `PPT/<project_id>/prompts/screen_text.json`
 - `PPT/<project_id>/prompts/prompts.json`
 
 Done when:
+- `screen_text.json` exists
 - `prompts.json` exists
+- requested pages are present in `screen_text.json`
 - requested pages are present in `prompts.json`
 - prompts avoid watermark language and stray rendered text
+- stop and ask the user to review `screen_text.json` before step 6
+
+Review rule:
+- `screen_text.json` is the primary review file because it only contains `page_id` and final on-slide text.
+- If the user changes `screen_text.json`, sync the corresponding quoted Chinese text in `prompts.json` before generating assets.
 
 ### Step 6: Visual Asset Generate
 
@@ -249,6 +267,7 @@ Output:
 Done when:
 - requested images exist
 - image aspect ratio is `16:9`
+- stop and ask the user to review the images before step 7
 
 ### Step 7: PPT Assemble
 
@@ -294,6 +313,7 @@ Keep the response short and operational. Include:
 - Outline path: `PPT/<project_id>/outline/outline.md`
 - Plan path: `PPT/<project_id>/plan/plan.json`
 - Draft path: `PPT/<project_id>/draft/slide_draft.json`
+- Screen text path: `PPT/<project_id>/prompts/screen_text.json`
 - Prompt path: `PPT/<project_id>/prompts/prompts.json`
 - Asset manifest: `PPT/<project_id>/assets/manifest.json`
 - Final deck: `PPT/<project_id>/deck/deck.pptx`

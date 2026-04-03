@@ -51,6 +51,7 @@ DEFAULT_ARTIFACT_KEYS = (
     "outline",
     "draft",
     "plan",
+    "screen_text",
     "prompts",
     "assets_manifest",
     "deck",

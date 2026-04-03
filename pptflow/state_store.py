@@ -25,6 +25,7 @@ def _default_artifact_path(name: str) -> str:
         "outline": "outline/outline.json",
         "draft": "draft/slide_draft.json",
         "plan": "plan/plan.json",
+        "screen_text": "prompts/screen_text.json",
         "prompts": "prompts/prompts.json",
         "assets_manifest": "assets/manifest.json",
         "deck": "deck/deck.pptx",

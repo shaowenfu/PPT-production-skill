@@ -4,7 +4,7 @@
 - `GOOGLE_API_KEY`：默认用于文本生成（文案扩写、提示词设计）和图像生成
 - `DEEPSEEK_API_KEY`：可选，用于文本生成 fallback
 - `OFOX_API_KEY`：可选，用于图像生成 fallback（火山引擎 Doubao）
-默认自动执行前五步，第五步执行完毕后停下来询问用户是否继续。
+默认不要连续跑完整条链路。每一步生成或修改中间产物后都先停下来，让用户确认，再进入下一步。
 
 # 第0步
 仓库的路径在本服务器上的位置为：`(这里由特定机器上的openClaw自己填充)`
@@ -75,17 +75,24 @@
   # 第二批
   python scripts/slide_draft_generate.py --project-dir PPT/ai_telecom --page-ids p6,p7,p8,p9,p10
   ```
+- **执行要求**：
+  - 产出后停下来，让用户先确认 `draft/slide_draft.json`
 
 # 第五步：视觉导演与提示词设计 (Visual Prompt Design)
-- **目标**：从深度稿（Draft）中蒸馏文案，并运用《非设计师设计指南》的对比原则，为图像模型生成导演级提示词。
-- **写入位置**：`PPT/<project_id>/prompts/prompts.json`
+- **目标**：从深度稿（Draft）中同时蒸馏“最终上屏文字”和导演级图像提示词。
+- **写入位置**：
+  - `PPT/<project_id>/prompts/screen_text.json`
+  - `PPT/<project_id>/prompts/prompts.json`
 - **强制约束**：
   - **分批处理**：默认 `--batch-size 5`，严禁调大。
-  - **严苛 JSON 模式**：输出必须严格对齐 `PromptItem` 模式。
+  - **严苛 JSON 模式**：模型输出必须同时包含 `page_id`、`text`、`prompt`。
 - **调用示例**：
   ```bash
   python scripts/visual_prompt_design.py --project-dir PPT/ai_telecom --batch-size 5
   ```
+- **执行要求**：
+  - 优先把 `screen_text.json` 发给用户确认，不要默认把完整 `prompts.json` 全量贴到对话里
+  - 如果用户修改了 `screen_text.json`，进入第六步前必须同步更新 `prompts.json` 中对应的中文引号文本
 
 # 第六步 & 第七步
 批量生成图片并封装 PPTX
@@ -102,3 +109,5 @@
   # 封装 PPTX
   python scripts/ppt_assemble.py --project-dir PPT/03
   ```
+- **执行要求**：
+  - 第六步产图后先让用户确认图片，再进入第七步

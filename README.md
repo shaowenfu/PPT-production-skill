@@ -13,7 +13,7 @@
 
 - **显式环境约束 (Explicit Environment Contract)**：要求显式使用 `venv`，缺少环境时快速失败，不做静默安装。
 - **状态机驱动 (State-Driven)**：每个项目拥有独立的 `state.json` 存盘点，支持流程的断点续传与精准回退。
-- **视觉导演系统 (Visual Director)**：通过 A/B 类页面划分与深度提示词工程（Prompt Engineering），确保生成图片无 AI 水印、无文字污染。
+- **视觉导演系统 (Visual Director)**：Step 5 同时产出 `screen_text.json` 和 `prompts.json`，把用户确认的上屏文字与机器使用的图像提示词分开。
 - **原子化脚本 (Atomic Scripts)**：流程解耦为 7 个独立可验证的 Python 脚本，易于 Agent 调用与人工调试。
 - **平台薄入口 (Thin Skill Entry)**：通过 `skill.sh` 和 `scripts/execute_step.py` 对外暴露稳定入口，不把业务流程封成黑盒。
 - **生产级 Skill 指南**：根目录 `SKILL.md` 定义了 Agent 执行的标准 SOP。
@@ -28,7 +28,7 @@
 2.  **Outline Ingest**: 提取/导入深度业务大纲。
 3.  **Slide Planning**: 生成 25 页逻辑规划（A/B 类页面分布）。
 4.  **Deep Content Generation**: 分批扩写 200-400 字的专业业务内容。
-5.  **Visual Prompt Design**: 蒸馏文案，设计导演级图像生成提示词。
+5.  **Visual Prompt Design**: 同时蒸馏最终上屏文字与导演级图像生成提示词，便于用户逐页确认。
 6.  **Visual Asset Generate**: 默认调用 Google 图像大模型批量渲染视觉资产，可切回 Doubao。
 7.  **PPT Assemble**: 将所有资产封装为最终的 `.pptx`。
 
@@ -88,6 +88,7 @@ pip install -r requirements.txt
 1.  **阅读 Skill**：请立即阅读 `SKILL.md`，这是你执行任务的最高准则。
 2.  **激活环境**：在执行任何脚本前，务必使用 `source venv/bin/activate`。
 3.  **状态先行**：每一步执行后，请检查 `state.json` 是否正确更新，这是你“存盘”的唯一凭证。
+4.  **逐步确认**：从 `outline` 开始，每一步产出后都先让用户确认中间文件；Step 5 优先给用户看 `prompts/screen_text.json`，不要默认展示完整 prompt。
 
 ---
 
