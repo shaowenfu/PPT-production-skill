@@ -64,6 +64,10 @@ Do not redesign this rendering model during execution. Follow it.
 
 - Always start with `Step 0: Scope Gate`. Do not jump straight into the workflow.
 - If the requested deck is estimated to be more than `30` pages, do not produce it as one project. Split it into modules first, get user confirmation, then run one module at a time.
+- Use the workflow flexibly based on input maturity. Do not mechanically force every project through the exact same path.
+- If the user has already provided concrete page-by-page content, treat that content as the source of truth. You may still use the existing workflow, but do not let `outline` / `draft` rewrite or dilute the fixed page content.
+- In fixed-content cases, you may keep the full workflow structure but manually adjust `plan.json`, `screen_text.json`, and especially `prompts.json` near the end so that final rendering matches the user-provided page content and intended presentation form.
+- Prefer using AI for structure, page-type judgment, and prompt drafting; prefer human-confirmed source content for final on-slide wording.
 - After every step, stop for user confirmation before the next step.
 - The machine-facing artifact stays in its original format (`.md` / `.json`).
 - The user-facing review artifact must be converted manually into a `.txt` file and sent to the user as a file.
