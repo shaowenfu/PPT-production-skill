@@ -52,6 +52,13 @@ Do not redesign this rendering model during execution. Follow it.
    - text: `google`
    - image: `google`
    - switch to fallback providers by editing those constants directly
+12. Before touching any project under `PPT/`, read `PPT/README.md`.
+13. `PPT/README.md` is the project registry for the whole `PPT/` workspace. It records brief `start` / `finish` history for every project.
+14. Default to the current user-specified `project_id` only. Do not inspect or modify historical project directories unless the user explicitly asks to continue or review them.
+15. When starting a new project, append one `start` record to `PPT/README.md`.
+16. When finishing a project, append one `finish` record to `PPT/README.md`.
+17. If one user request must be split into several PPT sub-projects, register them first in the `Project Queue` section of `PPT/README.md`.
+18. Only one sub-project may be `IN_PROGRESS` at a time. By default, work only on the current `IN_PROGRESS` item unless the user explicitly changes priority.
 
 ## Default execution policy
 
@@ -93,12 +100,14 @@ Confirm scope before entering the workflow.
 
 Action:
 - estimate the requested page count
-- if page count `> 50`, split into modules first
+- if page count `> 30`, split into modules first
+- if it is split into multiple child PPT projects, register them in `PPT/README.md` `Project Queue`, mark only one as `IN_PROGRESS`, and execute them one by one
 - write the global scope plan in `PPT/<project_id>/scope/global_plan.txt`
 
 Done when:
 - the scope is clear
 - the user has confirmed the module split or approved a `<= 30` page scope
+- for multi-project work, `Project Queue` in `PPT/README.md` has been updated before Step 1 starts
 
 ### Step 1: Project Init
 

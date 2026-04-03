@@ -3,4 +3,5 @@ Tasks/PPT/archive
 venv
 */__pycache__
 PPT/*
+!PPT/README.md
 MyPrivateDocs
