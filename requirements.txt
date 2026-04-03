@@ -9,3 +9,4 @@ pypdf>=3.0.0
 # Model integrations
 google-genai>=1.0.0
 openai>=1.0.0
+python-pptx>=0.6.21

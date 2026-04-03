@@ -55,24 +55,19 @@ Do not redesign this rendering model during execution. Follow it.
 
 ## Default execution policy
 
-- Do not run the full seven-step workflow continuously by default.
-- After each step that creates or changes an artifact, stop and ask the user to review that artifact before proceeding.
-- Use the artifact itself as the review surface. Do not dump the entire prompt into chat unless the user asks for it.
-- The primary review files are:
-  - step 2: `outline/outline.md`
-  - step 3: `plan/plan.json`
-  - step 4: `draft/slide_draft.json`
-  - step 5: `prompts/screen_text.json`
-  - step 6: generated images under `assets/`
-- `prompts/prompts.json` is the machine-facing file for image generation. Show it only when the user wants full prompt detail or when you need to manually sync it with approved on-slide text.
-- If the user edits `prompts/screen_text.json`, update `prompts/prompts.json` so the quoted Chinese text matches the approved screen text before running step 6.
+- Always start with `Step 0: Scope Gate`. Do not jump straight into the workflow.
+- If the requested deck is estimated to be more than `30` pages, do not produce it as one project. Split it into modules first, get user confirmation, then run one module at a time.
+- After every step, stop for user confirmation before the next step.
+- The machine-facing artifact stays in its original format (`.md` / `.json`).
+- The user-facing review artifact must be converted manually into a `.txt` file and sent to the user as a file.
+- Do not use a normal chat message as a substitute for the `.txt` file.
+- The review file should keep the original basename and only change the suffix to `.txt`.
+- If the user edits the approved text, update the machine-facing artifact before continuing.
 - Only stop automatically on real blockers:
   - missing source material
   - missing credentials
   - command failure
   - invalid or missing required artifact
-- If a step is manual, complete it directly instead of waiting for a later script to fail.
-- If a question is non-blocking, follow this `SKILL.md` and continue. Do not inspect code just to “double check”.
 
 ## Script responsibility table
 
@@ -89,7 +84,21 @@ Manual steps:
 - `outline` is direct agent writing
 - `plan` is direct agent writing
 
-## Seven-step workflow
+## Workflow
+
+### Step 0: Scope Gate
+
+Goal:
+Confirm scope before entering the workflow.
+
+Action:
+- estimate the requested page count
+- if page count `> 50`, split into modules first
+- write the global scope plan in `PPT/<project_id>/scope/global_plan.txt`
+
+Done when:
+- the scope is clear
+- the user has confirmed the module split or approved a `<= 30` page scope
 
 ### Step 1: Project Init
 
@@ -119,11 +128,14 @@ Write `PPT/<project_id>/outline/outline.md` directly. Do not use a script.
 
 Output:
 - `PPT/<project_id>/outline/outline.md`
+- `PPT/<project_id>/outline/outline.txt`
 
 Done when:
 - the outline is in Simplified Chinese
 - the structure is coherent and presentation-ready
 - the chapter flow matches the user goal
+- convert `outline/outline.md` into `outline/outline.txt`
+- send `outline/outline.txt` to the user as a file
 
 Minimal example:
 ```md
@@ -153,13 +165,17 @@ Write `PPT/<project_id>/plan/plan.json` directly. Do not use a script.
 
 Output:
 - `PPT/<project_id>/plan/plan.json`
+- `PPT/<project_id>/plan/plan.txt`
 
 Done when:
+- `project_id` is present at the top level of `plan.json`
 - page count is `25` by default unless the user says otherwise
 - `page_id` is unique and sequential like `p1`, `p2`, `p3`
 - `category` uses only `A` or `B`
 - `B` pages stay within `20%-40%`
 - every page has a deliberate `layout_type`
+- convert `plan/plan.json` into `plan/plan.txt`
+- send `plan/plan.txt` to the user as a file
 
 Planning rules:
 - decide `layout_type` in `plan.json`, not later in prompt generation
@@ -181,6 +197,7 @@ Planning rules:
 Minimal example:
 ```json
 {
+  "project_id": "<project_id>",
   "pages": [
     {
       "page_id": "p1",
@@ -196,10 +213,12 @@ Minimal example:
       "content_hint": "提出核心判断与价值重估逻辑",
       "layout_type": "comparison"
     }
-  ]
+  ],
+  "target_b_ratio": 0.3,
+  "actual_b_ratio": 0.3,
+  "metadata": {}
 }
 ```
-
 ### Step 4: Deep Content Generation
 
 Goal:
@@ -213,11 +232,13 @@ Run by batches over requested `page_ids`:
 
 Output:
 - `PPT/<project_id>/draft/slide_draft.json`
+- `PPT/<project_id>/draft/slide_draft.txt`
 
 Done when:
 - requested pages exist in `slide_draft.json`
 - content is substantive, not just title restatement
-- stop and ask the user to review `slide_draft.json` before step 5
+- convert `draft/slide_draft.json` into `draft/slide_draft.txt`
+- send `draft/slide_draft.txt` to the user as a file
 
 ### Step 5: Visual Prompt Design
 
@@ -238,6 +259,7 @@ Run full or batch generation:
 Output:
 - `PPT/<project_id>/prompts/screen_text.json`
 - `PPT/<project_id>/prompts/prompts.json`
+- `PPT/<project_id>/prompts/screen_text.txt`
 
 Done when:
 - `screen_text.json` exists
@@ -245,11 +267,9 @@ Done when:
 - requested pages are present in `screen_text.json`
 - requested pages are present in `prompts.json`
 - prompts avoid watermark language and stray rendered text
-- stop and ask the user to review `screen_text.json` before step 6
-
-Review rule:
-- `screen_text.json` is the primary review file because it only contains `page_id` and final on-slide text.
-- If the user changes `screen_text.json`, sync the corresponding quoted Chinese text in `prompts.json` before generating assets.
+- convert `screen_text.json` into `screen_text.txt`
+- send `screen_text.txt` to the user as a file
+- if the user changes the approved text, sync `prompts/prompts.json` before step 6
 
 ### Step 6: Visual Asset Generate
 
@@ -271,11 +291,13 @@ Run one page or rerun selected pages:
 Output:
 - `PPT/<project_id>/assets/manifest.json`
 - image files under `PPT/<project_id>/assets/`
+- `PPT/<project_id>/assets/manifest.txt`
 
 Done when:
 - requested images exist
 - image aspect ratio is `16:9`
-- stop and ask the user to review the images before step 7
+- write `assets/manifest.txt`
+- send `assets/manifest.txt` and the images to the user
 
 ### Step 7: PPT Assemble
 
@@ -319,9 +341,15 @@ Keep the response short and operational. Include:
 - Thin entry: `skill.sh`
 - Dispatcher: `scripts/execute_step.py`
 - Outline path: `PPT/<project_id>/outline/outline.md`
+- Outline review path: `PPT/<project_id>/outline/outline.txt`
 - Plan path: `PPT/<project_id>/plan/plan.json`
+- Plan review path: `PPT/<project_id>/plan/plan.txt`
 - Draft path: `PPT/<project_id>/draft/slide_draft.json`
+- Draft review path: `PPT/<project_id>/draft/slide_draft.txt`
+- Scope path: `PPT/<project_id>/scope/global_plan.txt`
 - Screen text path: `PPT/<project_id>/prompts/screen_text.json`
+- Screen text review path: `PPT/<project_id>/prompts/screen_text.txt`
 - Prompt path: `PPT/<project_id>/prompts/prompts.json`
 - Asset manifest: `PPT/<project_id>/assets/manifest.json`
+- Asset review path: `PPT/<project_id>/assets/manifest.txt`
 - Final deck: `PPT/<project_id>/deck/deck.pptx`

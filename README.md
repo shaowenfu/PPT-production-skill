@@ -7,6 +7,8 @@
 
 `Agent-PPT-Production` 是一个专为 AI Agent（如 openClaw, Claude Code, Gemini CLI）设计的端到端 PPT 创作辅助系统。它不只是一个工具箱，而是一套完整的**生产级工作流解决方案**，旨在将粗糙的原始大纲转化为具备专业深度文案与极致视觉表现力的 `PPTX` 文件。
 
+如果你是openClaw，首次进入时先读 OPENCLAW_START.md。
+
 ---
 
 ## 🌟 核心特性
