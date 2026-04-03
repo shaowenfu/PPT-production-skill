@@ -11,6 +11,14 @@ compatibility:
 
 Use this skill after the agent clones this repository. Treat this document as the primary `SOP（标准作业程序）`. Do not inspect source code unless a command fails, required config is missing, or an artifact is structurally invalid.
 
+## Prerequisites
+
+Keep this short checklist in mind before running the workflow:
+- use **Python 3.11** and create `venv/`
+- activate the environment and run `pip install -U pip setuptools wheel && pip install -r requirements.txt`
+- create `.env` and set at least `GOOGLE_API_KEY`
+- run `./skill.sh --help` and a minimal `init` once before first real project
+
 ## Core model
 
 This repo produces PPT in a specific way:

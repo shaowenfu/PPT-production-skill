@@ -58,12 +58,18 @@ cd agent-PPT-production
 ```
 
 ### 2. 环境配置
-建议使用虚拟环境以保证依赖隔离：
+建议使用虚拟环境以保证依赖隔离。**推荐 Python 3.11**（本项目依赖不建议使用 Python 3.6 一类较老版本）：
 ```bash
-python -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate  # Linux/macOS
 # .\venv\Scripts\activate  # Windows
+pip install -U pip setuptools wheel
 pip install -r requirements.txt
+```
+
+如果系统里还没有 Python 3.11，可先安装后再创建虚拟环境。例如在 Alibaba Cloud Linux 3：
+```bash
+sudo dnf install -y python3.11 python3.11-devel python3.11-pip python3.11-setuptools python3.11-wheel
 ```
 
 ### 3. 配置秘钥
@@ -72,7 +78,22 @@ pip install -r requirements.txt
 - `DEEPSEEK_API_KEY`: 可选，用于文本生成 fallback。
 - `OFOX_API_KEY`: 可选，用于图像生成 fallback（火山引擎 Doubao）。
 
-### 4. 平台入口
+最小 `.env` 示例：
+```bash
+cp .env.example .env
+# 然后编辑 .env，至少填写 GOOGLE_API_KEY
+```
+
+### 4. 环境自检
+在正式跑工作流前，建议先做两步最小验证：
+```bash
+./skill.sh --help
+./skill.sh --step init --project-dir PPT/env-check
+```
+
+如果第二条命令成功生成 `PPT/env-check/state.json`，说明基础运行环境已经就绪。
+
+### 5. 平台入口
 固定 `aspect ratio` 为 `16:9`。默认 Google 图像生成请求 `image_size="2K"`。
 
 ```bash
