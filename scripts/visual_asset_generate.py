@@ -47,6 +47,25 @@ MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 
 
+def _preferred_image_extension(image_provider: str) -> str:
+    if image_provider == "google":
+        return ".jpg"
+    return ".png"
+
+
+def _candidate_output_paths(assets_dir: Path, page_id: str, image_provider: str) -> list[Path]:
+    preferred_suffix = _preferred_image_extension(image_provider)
+    suffixes = [preferred_suffix]
+    for legacy_suffix in (".png", ".jpg"):
+        if legacy_suffix not in suffixes:
+            suffixes.append(legacy_suffix)
+    return [assets_dir / f"{page_id}{suffix}" for suffix in suffixes]
+
+
+def _preferred_output_path(assets_dir: Path, page_id: str, image_provider: str) -> Path:
+    return assets_dir / f"{page_id}{_preferred_image_extension(image_provider)}"
+
+
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--project-dir", required=True, help="项目目录")
     parser.add_argument("--target-pages", default=None, help="目标页面ID (逗号分隔)")
@@ -145,7 +164,8 @@ def _generate_image_with_google(
             continue
         image = part.as_image()
         image.save(output_path)
-        width, height = image.size
+        with Image.open(output_path) as saved_image:
+            width, height = saved_image.size
         return True, {"width": width, "height": height}
 
     return False, None
@@ -201,7 +221,7 @@ async def _generate_asset_item(
                     item.page_id,
                     AssetItem(
                         page_id=item.page_id,
-                        file_path=f"assets/{item.page_id}.png",
+                        file_path=f"assets/{output_path.name}",
                         width=dims["width"],
                         height=dims["height"],
                         provider=settings.image_provider,
@@ -287,16 +307,20 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
     parallel = max(1, args.parallel)
     requests_to_run: list[tuple[Any, Path]] = []
     for item in items_to_generate:
-        output_path = assets_dir / f"{item.page_id}.png"
+        output_path = _preferred_output_path(assets_dir, item.page_id, settings.image_provider)
+        existing_output_path = next(
+            (path for path in _candidate_output_paths(assets_dir, item.page_id, settings.image_provider) if path.exists()),
+            None,
+        )
 
         # 如果图片已存在且不需要覆盖，则跳过并保留清单记录
-        if output_path.exists() and not args.overwrite:
+        if existing_output_path is not None and not args.overwrite:
             if item.page_id not in generated_items_dict:
-                with Image.open(output_path) as existing_image:
+                with Image.open(existing_output_path) as existing_image:
                     width, height = existing_image.size
                 generated_items_dict[item.page_id] = AssetItem(
                     page_id=item.page_id,
-                    file_path=f"assets/{item.page_id}.png",
+                    file_path=f"assets/{existing_output_path.name}",
                     width=width,
                     height=height,
                     provider=settings.image_provider,
@@ -318,6 +342,11 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
         ):
             if asset_item is not None:
                 generated_items_dict[page_id] = asset_item
+                active_filename = Path(asset_item.file_path).name
+                for candidate_path in _candidate_output_paths(assets_dir, page_id, settings.image_provider):
+                    if candidate_path.name == active_filename or not candidate_path.exists():
+                        continue
+                    candidate_path.unlink()
             if failure is not None:
                 failed_pages.append(failure)
 
