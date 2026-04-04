@@ -45,6 +45,11 @@ from pptflow.state_store import (
 TOOL_NAME = "visual_asset_generate"
 MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
+DEFAULT_TEXT_RENDERING_SUFFIX = (
+    " Text rendering constraints: ensure Chinese text is clear, accurate, and readable; "
+    "maintain high contrast, crisp edges, accurate glyph shapes, and stable spacing; "
+    "avoid decorative distortion, merged strokes, blurry glow, or unreadable pseudo-fonts."
+)
 
 
 def _preferred_image_extension(image_provider: str) -> str:
@@ -64,6 +69,13 @@ def _candidate_output_paths(assets_dir: Path, page_id: str, image_provider: str)
 
 def _preferred_output_path(assets_dir: Path, page_id: str, image_provider: str) -> Path:
     return assets_dir / f"{page_id}{_preferred_image_extension(image_provider)}"
+
+
+def _compose_final_image_prompt(base_prompt: str) -> str:
+    prompt = base_prompt.strip()
+    if not prompt:
+        return DEFAULT_TEXT_RENDERING_SUFFIX.strip()
+    return f"{prompt}\n\n{DEFAULT_TEXT_RENDERING_SUFFIX}"
 
 
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -210,10 +222,11 @@ async def _generate_asset_item(
     async with semaphore:
         try:
             print_stderr(f"正在为页面 {item.page_id} 生成图像 ({settings.image_provider}/{settings.image_model})...")
+            final_prompt = _compose_final_image_prompt(item.prompt)
             success, dims = await _generate_image(
                 client=client,
                 settings=settings,
-                prompt=item.prompt,
+                prompt=final_prompt,
                 output_path=output_path,
             )
             if success and dims:

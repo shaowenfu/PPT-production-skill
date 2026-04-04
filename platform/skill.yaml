@@ -10,6 +10,7 @@ required_env:
   - GOOGLE_API_KEY
 steps:
   - project_init
+  - auto
   - slide_draft_generate
   - visual_prompt_design
   - visual_asset_generate

@@ -66,7 +66,7 @@ Do not redesign this rendering model during execution. Follow it.
 - If the requested deck is estimated to be more than `30` pages, do not produce it as one project. Split it into modules first, get user confirmation, then run one module at a time.
 - Use the workflow flexibly based on input maturity. Do not mechanically force every project through the exact same path.
 - If the user has already provided concrete page-by-page content, treat that content as the source of truth. You may still use the existing workflow, but do not let `outline` / `draft` rewrite or dilute the fixed page content.
-- In fixed-content cases, you may keep the full workflow structure but manually adjust `plan.json`, `screen_text.json`, and especially `prompts.json` near the end so that final rendering matches the user-provided page content and intended presentation form.
+- In fixed-content cases, write the final on-slide copy into `plan.json` using `content_mode="locked"`, `source_text`, `source_origin`, and `copy_locked=true`. Prefer `./skill.sh --step auto` so the workflow can skip Draft automatically.
 - Prefer using AI for structure, page-type judgment, and prompt drafting; prefer human-confirmed source content for final on-slide wording.
 - After every step, stop for user confirmation before the next step.
 - The machine-facing artifact stays in its original format (`.md` / `.json`).
@@ -85,6 +85,7 @@ Do not redesign this rendering model during execution. Follow it.
 | Step | Backing mode | What it does | Scope |
 | --- | --- | --- | --- |
 | `init` | script | creates workspace and state files | one project |
+| `auto` | script | routes to the next required step and skips Draft for locked-copy pages | one project or selected pages |
 | `draft` | script | generates deep page content into `draft/slide_draft.json` | only requested `page_ids` |
 | `prompt` | script | generates user-reviewable screen text plus visual prompts from draft content | supports full run, selected pages, and parallel batches |
 | `assets` | script | generates slide images from prompts | supports full run, selected pages, and parallel generation |
@@ -193,6 +194,8 @@ Done when:
 Planning rules:
 - decide `layout_type` in `plan.json`, not later in prompt generation
 - `layout_type` should express information structure, not visual style keywords
+- if the user already fixed the final on-slide wording for a page, set `content_mode` to `locked`, fill `source_text`, and set `copy_locked=true`
+- if a page still needs AI content expansion, keep `content_mode` as `generated` and provide `content_hint`
 - avoid using a single `A`-page type for everything
 - recommended `layout_type` vocabulary:
   - `cover`
@@ -207,24 +210,21 @@ Planning rules:
   - `summary`
 - adjacent pages should not all share the same `layout_type`
 
-Minimal example:
+Minimal schema example:
 ```json
 {
   "project_id": "<project_id>",
   "pages": [
     {
-      "page_id": "p1",
-      "title": "趋势洞察：AI时代通信运营新机遇",
-      "category": "B",
-      "content_hint": "封面与主题建立",
-      "layout_type": "cover"
-    },
-    {
-      "page_id": "p2",
-      "title": "为什么现在必须重新看待运营商价值",
+      "page_id": "pN",
+      "title": "页面标题",
       "category": "A",
-      "content_hint": "提出核心判断与价值重估逻辑",
-      "layout_type": "comparison"
+      "layout_type": "bullet_points",
+      "content_mode": "generated",
+      "content_hint": "页面内容提示",
+      "source_text": null,
+      "source_origin": null,
+      "copy_locked": false
     }
   ],
   "target_b_ratio": 0.3,
@@ -257,6 +257,10 @@ Done when:
 
 Goal:
 Convert slide draft content into user-confirmable on-slide text and image-generation prompts.
+
+Fixed-copy rule:
+- if `content_mode="locked"`, `prompt` step must reuse `source_text` exactly and must not rewrite it
+- `draft/slide_draft.json` is optional for locked pages
 
 Action:
 Run one page:

@@ -42,6 +42,10 @@
       "page_id": "p1",
       "title": "页面标题",
       "content_hint": "大纲内容片段或要点",
+      "content_mode": "generated",
+      "source_text": null,
+      "source_origin": null,
+      "copy_locked": false,
       "category": "A",
       "layout_type": "bullet_list"
     }
@@ -56,10 +60,19 @@
 - `page_id`: 页面唯一标识，格式为 p1, p2, p3...
 - `title`: 页面标题
 - `content_hint`: 大纲内容片段或要点提示
+- `content_mode`: 页面内容来源，`"generated"` 表示需要 Draft 扩写，`"locked"` 表示最终上屏文案已锁定
+- `source_text`: 当 `content_mode="locked"` 时的最终上屏文案真相
+- `source_origin`: 当 `content_mode="locked"` 时的来源，当前支持 `"user"` / `"agent"`
+- `copy_locked`: 是否强制锁定上屏文案；locked 页面必须为 `true`
 - `category`: 页面类别，可选值为 `"A"`（信息型）或 `"B"`（情绪型/金句型）
 - `layout_type`: 布局类型，如 `bullet_list`, `cover`, `quote`, `transition`, `comparison`, `case_study` 等
 - `target_b_ratio`: 目标 B 类页面占比（默认 0.3）
 - `actual_b_ratio`: 实际 B 类页面占比
+
+**内容模式约束**：
+- `generated` 页面必须提供 `content_hint`，且不得提供 `source_text`
+- `locked` 页面必须提供 `source_text`，且 `copy_locked=true`
+- 一个项目允许同时混合 `generated` 和 `locked` 页面
 
 # 第四步：深度文案扩写 (Deep Content Generation)
 - **目标**：将分页规划中的简略 `content_hint` 扩展为深度业务逻辑（200-400 字）。
@@ -79,16 +92,18 @@
   - 产出后停下来，让用户先确认 `draft/slide_draft.json`
 
 # 第五步：视觉导演与提示词设计 (Visual Prompt Design)
-- **目标**：从深度稿（Draft）中同时蒸馏“最终上屏文字”和导演级图像提示词。
+- **目标**：根据页面内容来源，生成“最终上屏文字”和导演级图像提示词。
 - **写入位置**：
   - `PPT/<project_id>/prompts/screen_text.json`
   - `PPT/<project_id>/prompts/prompts.json`
 - **强制约束**：
   - **分批处理**：默认 `--batch-size 5`，严禁调大。
   - **严苛 JSON 模式**：模型输出必须同时包含 `page_id`、`text`、`prompt`。
+  - **锁定文案模式**：若页面 `content_mode="locked"`，则输出的 `text` 必须与 `source_text` 完全一致，`prompt` 中的中文渲染文案也必须与 `source_text` 完全一致。
 - **调用示例**：
   ```bash
   python scripts/visual_prompt_design.py --project-dir PPT/ai_telecom --batch-size 5
+  python scripts/execute_step.py --step auto --project-dir PPT/ai_telecom
   ```
 - **执行要求**：
   - 优先把 `screen_text.json` 发给用户确认，不要默认把完整 `prompts.json` 全量贴到对话里
