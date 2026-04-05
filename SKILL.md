@@ -50,6 +50,7 @@ Do not redesign this rendering model during execution. Follow it.
 - Always start with `Step 0: Scope Gate`. Do not jump straight into the workflow.
 - Use the workflow flexibly based on input maturity. Do not mechanically force every project through the exact same path.
 - If the user has already provided concrete page-by-page content, treat that content as the source of truth and route into the fixed-content branch automatically.
+- If you cannot confidently determine whether the input should use the fixed-content branch or the generated-content branch, do not guess. Ask the user to confirm which mode to use.
 - In fixed-content cases, write the user-provided page content into `plan.json` using `content_mode="locked"` and `source_text`. Prefer `./skill.sh --step auto` so the workflow can skip Draft automatically.
 - For locked pages, the goal is normal PPT-ready copy that stays faithful to the user-provided page information. Do not mechanically print structural labels such as `封面：` or `副标题：` unless the user explicitly wants them rendered.
 - Prefer using AI for structure, page-type judgment, and prompt drafting; prefer human-confirmed source content for final on-slide wording.
@@ -92,6 +93,7 @@ Action:
 - estimate the requested page count
 - determine whether the user input is a rough idea or already a page-by-page PPT content plan
 - if the user has already provided page-by-page content, route into the fixed-content branch directly instead of forcing the full seven-step flow
+- if the branch type is ambiguous, ask the user to confirm instead of guessing
 - write the global scope note in `PPT/<project_id>/scope/global_plan.txt`
 
 Done when:
@@ -256,6 +258,11 @@ Run full or batch generation:
 ./skill.sh --step prompt --project-dir PPT/<project_id> --batch-size 5 --parallel 3
 ```
 
+Batch rule for large runs:
+- if the current prompt run covers many pages, split it into batches of at most `30` pages
+- after each batch finishes, send the user a short progress update such as `已完成第一批 1~30 页，继续下一批`
+- do not pause for confirmation between batches; continue directly with the next batch after reporting progress
+
 Output:
 - `PPT/<project_id>/prompts/screen_text.json`
 - `PPT/<project_id>/prompts/prompts.json`
@@ -288,6 +295,11 @@ Run one page or rerun selected pages:
 ./skill.sh --step assets --project-dir PPT/<project_id> --target-pages p8 --parallel 1
 ./skill.sh --step assets --project-dir PPT/<project_id> --target-pages p8,p9 --parallel 2 --overwrite
 ```
+
+Batch rule for large runs:
+- if the current asset generation covers many pages, split it into batches of at most `30` pages
+- after each batch finishes, send the user a short progress update such as `已完成第一批 1~30 页，继续下一批`
+- do not pause for confirmation between batches; continue directly with the next batch after reporting progress
 
 Output:
 - `PPT/<project_id>/assets/manifest.json`
