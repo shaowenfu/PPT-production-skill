@@ -335,7 +335,7 @@ Done when:
 - tell the user that the full PPT remains on the server and provide ready-to-run `scp` download commands for both Windows and Mac
 - fill the `scp` command with the actual server IP, remote PPT path, and port known in the current environment; do not leave placeholders if the values are available
 - use this command format:
-  - Windows: `scp -P 22 root@<server_ip>:<remote_full_ppt_path> $HOME\\Desktop\\`
+  - Windows: `scp -P 22 root@<server_ip>:<remote_full_ppt_path> $HOME\Desktop\`
   - Mac: `scp -P 22 root@<server_ip>:<remote_full_ppt_path> ~/Desktop/`
 
 ## Blocker handling
