@@ -1,56 +1,15 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from .errors import InputError, OutputValidationError
-from .schemas import PlanPage, SlideDraftDocument, SlidePlanDocument
-
-QUOTED_TEXT_PATTERN = re.compile(r'"([^"]+)"|\'([^\']+)\'')
+from .schemas import SlideDraftDocument, SlidePlanDocument
 
 
 def normalize_screen_text(text: str) -> str:
     if not isinstance(text, str):
         raise OutputValidationError("screen_text 必须是字符串")
     return "\n".join(line.rstrip() for line in text.strip().splitlines()).strip()
-
-
-def extract_quoted_fragments(prompt: str) -> list[str]:
-    fragments: list[str] = []
-    for match in QUOTED_TEXT_PATTERN.finditer(prompt):
-        fragment = match.group(1) or match.group(2) or ""
-        normalized = fragment.strip()
-        if normalized:
-            fragments.append(normalized)
-    return fragments
-
-
-def validate_locked_page_output(page: PlanPage, text: str, prompt: str) -> None:
-    expected_text = normalize_screen_text(page.source_text or "")
-    actual_text = normalize_screen_text(text)
-    if actual_text != expected_text:
-        raise OutputValidationError(
-            f"{page.page_id} 的 text 未严格使用 source_text",
-            details={
-                "page_id": page.page_id,
-                "expected_text": expected_text,
-                "actual_text": actual_text,
-            },
-        )
-
-    quoted_fragments = extract_quoted_fragments(prompt)
-    expected_lines = [line.strip() for line in expected_text.splitlines() if line.strip()]
-    prompt_has_full_text = expected_text in prompt
-    prompt_has_all_lines = all(line in prompt or line in quoted_fragments for line in expected_lines)
-    if not (prompt_has_full_text or prompt_has_all_lines):
-        raise OutputValidationError(
-            f"{page.page_id} 的 prompt 未完整包含锁定文案",
-            details={
-                "page_id": page.page_id,
-                "expected_lines": expected_lines,
-                "quoted_fragments": quoted_fragments,
-            },
-        )
 
 
 def build_page_specs(

@@ -30,7 +30,7 @@ from pptflow.errors import InputError, OutputValidationError
 from pptflow.json_io import read_json, write_json
 from pptflow.llm_json import parse_llm_json
 from pptflow.paths import resolve_project_dir
-from pptflow.prompt_design_contracts import build_page_specs, normalize_screen_text, validate_locked_page_output
+from pptflow.prompt_design_contracts import build_page_specs, normalize_screen_text
 from pptflow.schemas import (
     PlanPage,
     PromptDocument,
@@ -175,7 +175,6 @@ def _build_page_brief(plan_page: PlanPage, content_input: str) -> str:
     return (
         f"Page ID: {plan_page.page_id}\n"
         f"Content Mode: {plan_page.content_mode}\n"
-        f"Copy Locked: {plan_page.copy_locked}\n"
         f"Category: {plan_page.category}\n"
         f"Layout Type: {plan_page.layout_type}\n"
         f"Title: {title}\n"
@@ -203,11 +202,10 @@ def _build_system_prompt() -> str:
 
 ## 内容来源契约
 1. 每页都有 `Content Mode`。
-2. 如果 `Content Mode = locked` 或 `Copy Locked = true`，那么 `Source Text` 就是该页最终上屏文案的唯一真相。
-3. 对 locked 页面，你不得改写、删减、润色、重组或翻译 `Source Text`。
-4. 对 locked 页面，你输出的 `text` 必须与 `Source Text` 完全一致。
-5. 对 locked 页面，`prompt` 中所有需要渲染的中文文案也必须与 `Source Text` 完全一致。
-6. 只有 `Content Mode = generated` 的页面，你才可以根据 `Content Input` 提炼上屏文案。
+2. 如果 `Content Mode = locked`，那么 `Source Text` 是该页页面信息、页面文案和结构语义的权威来源。
+3. 对 locked 页面，你必须忠实使用 `Source Text` 提供的信息，不要遗漏、篡改或引入与原意不一致的新内容。
+4. `Source Text` 里如果出现 `封面：`、`标题：`、`副标题：`、`主讲：`、`logo：`、`时间：`、`地点：`、`客户：` 这类字段名或说明性标签，默认把它们理解为结构提示，而不是最终必须渲染到页面上的文字；除非上下文明确要求这些标签名本身也要显示。
+5. 只有 `Content Mode = generated` 的页面，你才可以根据 `Content Input` 提炼上屏文案。
 
 ## 语言规则
 1. `prompt` 的描述性部分必须使用英文。
@@ -273,7 +271,7 @@ def _build_system_prompt() -> str:
 2. 对 `generated` 页，`A` 页通常输出 1 个中文标题 + 2 至 4 个中文要点。
 3. 对 `generated` 页，`B` 页通常输出 1 个中文“金句”；必要时可加 1 个短副标题。
 4. 对 `generated` 页面，中文文案必须短、准、可上屏，避免长句讲稿化。
-5. 对 `locked` 页面，禁止执行任何蒸馏，直接原样使用 `Source Text`。
+5. 对 `locked` 页面，允许根据页面说明语义进行正常的 PPT 文案整理，但必须与用户给定信息保持一致。优先输出适合屏显的正常 PPT 文案，不要把说明性标签机械搬到画面上。
 
 ## 禁止事项
 1. 禁止出现 watermark, logo, copyright mark, AI generated mark，“AI生成”类似的水印。
@@ -293,7 +291,7 @@ def _build_system_prompt() -> str:
 2. `A` 页的 `text` 用多行纯文本表达：第一行标题，后续每行一个要点，使用 `- ` 开头。
 3. `B` 页的 `text` 默认只写 1 行金句；如果确实需要副标题，可放在第二行。
 4. `prompt` 必须是紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。
-5. 如果页面是 locked，`text` 与 `prompt` 的中文渲染内容都必须逐字忠实于 `Source Text`。"""
+5. 如果页面是 locked，`text` 与 `prompt` 必须忠实于 `Source Text` 所表达的页面信息与展示意图，但不要把说明性字段名误当成最终渲染文案。"""
 
 
 def _build_user_prompt(plan: SlidePlanDocument, page_batch: list[dict[str, Any]]) -> str:
@@ -327,7 +325,7 @@ Additional Directives:
 - Keep the deck visually coherent but not repetitive.
 - Use different compositions across adjacent pages.
 - Make independent design decisions for each page based on its theme, category, and layout type.
-- Respect `Content Mode` strictly. Locked pages must reuse `Source Text` exactly.
+- Respect `Content Mode` strictly. Locked pages must stay faithful to `Source Text`, while turning label-style input into normal PPT-ready copy.
 - Prefer dark, low-luminance, projection-friendly backgrounds across the deck.
 - Use `dark navy radial glow background, subtle top-center blue illumination` as the default background direction unless the page strongly requires another dark treatment.
 - Never use light background, white background, bright canvas, or pale gradient.
@@ -382,11 +380,8 @@ async def _generate_prompt_batch(
     screen_text_items: list[ScreenTextItem] = []
     for item in received_items:
         page_id = item["page_id"]
-        text = _normalize_screen_text(item["text"])
+        text = normalize_screen_text(item["text"])
         prompt = item["prompt"].strip()
-        page = page_spec_map[page_id]["page"]
-        if page.content_mode == "locked":
-            validate_locked_page_output(page, text, prompt)
         screen_text_items.append(ScreenTextItem(page_id=page_id, text=text))
         prompt_items.append(PromptItem(page_id=page_id, prompt=prompt))
     return prompt_items, screen_text_items

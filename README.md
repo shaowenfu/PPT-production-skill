@@ -16,7 +16,7 @@
 - **显式环境约束 (Explicit Environment Contract)**：要求显式使用 `venv`，缺少环境时快速失败，不做静默安装。
 - **状态机驱动 (State-Driven)**：每个项目拥有独立的 `state.json` 存盘点，支持流程的断点续传与精准回退。
 - **视觉导演系统 (Visual Director)**：Step 5 同时产出 `screen_text.json` 和 `prompts.json`，把用户确认的上屏文字与机器使用的图像提示词分开。
-- **锁定文案模式 (Locked Copy Mode)**：当用户已经给出每页最终上屏文案时，可直接把文案写入 `plan.json`，跳过 Draft 扩写，只做设计与出图。
+- **固定内容模式 (Fixed-content Mode)**：当用户已经给出逐页 PPT 内容时，可直接把页面信息写入 `plan.json`，跳过 Draft 扩写，只做屏显文案整理、设计与出图。
 - **原子化脚本 (Atomic Scripts)**：流程解耦为 7 个独立可验证的 Python 脚本，易于 Agent 调用与人工调试。
 - **平台薄入口 (Thin Skill Entry)**：通过 `skill.sh` 和 `scripts/execute_step.py` 对外暴露稳定入口，不把业务流程封成黑盒。
 - **生产级 Skill 指南**：根目录 `SKILL.md` 定义了 Agent 执行的标准 SOP。
@@ -35,8 +35,8 @@
 6.  **Visual Asset Generate**: 默认调用 Google 图像大模型批量渲染视觉资产，可切回 Doubao。
 7.  **PPT Assemble**: 将所有资产封装为最终的 `.pptx`。
 
-固定文案场景：
-- 若 `plan.json` 页面设置了 `content_mode="locked"`、`source_text`、`copy_locked=true`，Step 4 可跳过，Step 5 会强制原样使用该文案。
+固定内容场景：
+- 若 `plan.json` 页面设置了 `content_mode="locked"` 与 `source_text`，Step 4 可跳过，Step 5 会把 `source_text` 视为权威页面信息，生成正常 PPT 屏显文案与视觉提示词。
 
 ---
 
@@ -117,7 +117,7 @@ cp .env.example .env
 2.  **激活环境**：在执行任何脚本前，务必使用 `source venv/bin/activate`。
 3.  **状态先行**：每一步执行后，请检查 `state.json` 是否正确更新，这是你“存盘”的唯一凭证。
 4.  **逐步确认**：从 `outline` 开始，每一步产出后都先让用户确认中间文件；Step 5 优先给用户看 `prompts/screen_text.json`，不要默认展示完整 prompt。
-5.  **灵活路由**：若项目使用锁定文案模式，可调用 `./skill.sh --step auto` 自动跳过不需要的 Draft 步骤。
+5.  **灵活路由**：若项目使用固定内容模式，可调用 `./skill.sh --step auto` 自动跳过不需要的 Draft 步骤。
 
 ---
 

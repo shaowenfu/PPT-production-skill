@@ -39,34 +39,19 @@ Do not redesign this rendering model during execution. Follow it.
    - if `venv/` does not exist, run `python -m venv venv`
    - run `source venv/bin/activate`
    - run `pip install -r requirements.txt`
-5. Keep `aspect ratio` fixed at `16:9`.
-6. For Google image generation, request `image_size="2K"` and keep `aspect ratio` at `16:9`.
-7. Prefer `./skill.sh` for all script-backed steps. It is the stable thin entry.
-8. Keep atomic script boundaries intact. Do not merge the workflow into one custom script.
-9. When resuming a project, read `PPT/<project_id>/state.json` first.
-10. Required credentials:
+5. Prefer `./skill.sh` for all script-backed steps. It is the stable thin entry.
+6. Keep atomic script boundaries intact. Do not merge the workflow into one custom script.
+7. When resuming a project, read `PPT/<project_id>/state.json` first.
+8. Required credentials:
    - `GOOGLE_API_KEY` for default text generation and image generation, ask user to set it up in .env or ask them to provide it and write into .env directly if missing(**required**)
-   - `DEEPSEEK_API_KEY` for text generation fallback(**optional**)
-   - `OFOX_API_KEY` for image generation fallback(**optional**)
-11. Default providers are hardcoded in `pptflow/config.py`:
-   - text: `google`
-   - image: `google`
-   - switch to fallback providers by editing those constants directly
-12. Before touching any project under `PPT/`, read `PPT/README.md`.
-13. `PPT/README.md` is the project registry for the whole `PPT/` workspace. It records brief `start` / `finish` history for every project.
-14. Default to the current user-specified `project_id` only. Do not inspect or modify historical project directories unless the user explicitly asks to continue or review them.
-15. When starting a new project, append one `start` record to `PPT/README.md`.
-16. When finishing a project, append one `finish` record to `PPT/README.md`.
-17. If one user request must be split into several PPT sub-projects, register them first in the `Project Queue` section of `PPT/README.md`.
-18. Only one sub-project may be `IN_PROGRESS` at a time. By default, work only on the current `IN_PROGRESS` item unless the user explicitly changes priority.
 
 ## Default execution policy
 
 - Always start with `Step 0: Scope Gate`. Do not jump straight into the workflow.
-- If the requested deck is estimated to be more than `30` pages, do not produce it as one project. Split it into modules first, get user confirmation, then run one module at a time.
 - Use the workflow flexibly based on input maturity. Do not mechanically force every project through the exact same path.
-- If the user has already provided concrete page-by-page content, treat that content as the source of truth. You may still use the existing workflow, but do not let `outline` / `draft` rewrite or dilute the fixed page content.
-- In fixed-content cases, write the final on-slide copy into `plan.json` using `content_mode="locked"`, `source_text`, `source_origin`, and `copy_locked=true`. Prefer `./skill.sh --step auto` so the workflow can skip Draft automatically.
+- If the user has already provided concrete page-by-page content, treat that content as the source of truth and route into the fixed-content branch automatically.
+- In fixed-content cases, write the user-provided page content into `plan.json` using `content_mode="locked"` and `source_text`. Prefer `./skill.sh --step auto` so the workflow can skip Draft automatically.
+- For locked pages, the goal is normal PPT-ready copy that stays faithful to the user-provided page information. Do not mechanically print structural labels such as `封面：` or `副标题：` unless the user explicitly wants them rendered.
 - Prefer using AI for structure, page-type judgment, and prompt drafting; prefer human-confirmed source content for final on-slide wording.
 - After every step, stop for user confirmation before the next step.
 - The machine-facing artifact stays in its original format (`.md` / `.json`).
@@ -85,7 +70,7 @@ Do not redesign this rendering model during execution. Follow it.
 | Step | Backing mode | What it does | Scope |
 | --- | --- | --- | --- |
 | `init` | script | creates workspace and state files | one project |
-| `auto` | script | routes to the next required step and skips Draft for locked-copy pages | one project or selected pages |
+| `auto` | script | routes to the next required step and skips Draft for user-specified pages | one project or selected pages |
 | `draft` | script | generates deep page content into `draft/slide_draft.json` | only requested `page_ids` |
 | `prompt` | script | generates user-reviewable screen text plus visual prompts from draft content | supports full run, selected pages, and parallel batches |
 | `assets` | script | generates slide images from prompts | supports full run, selected pages, and parallel generation |
@@ -105,14 +90,13 @@ Confirm scope before entering the workflow.
 
 Action:
 - estimate the requested page count
-- if page count `> 30`, split into modules first
-- if it is split into multiple child PPT projects, register them in `PPT/README.md` `Project Queue`, mark only one as `IN_PROGRESS`, and execute them one by one
-- write the global scope plan in `PPT/<project_id>/scope/global_plan.txt`
+- determine whether the user input is a rough idea or already a page-by-page PPT content plan
+- if the user has already provided page-by-page content, route into the fixed-content branch directly instead of forcing the full seven-step flow
+- write the global scope note in `PPT/<project_id>/scope/global_plan.txt`
 
 Done when:
 - the scope is clear
-- the user has confirmed the module split or approved a `<= 30` page scope
-- for multi-project work, `Project Queue` in `PPT/README.md` has been updated before Step 1 starts
+- the agent knows whether this job should use the fixed-content branch or the generated-content branch
 
 ### Step 1: Project Init
 
@@ -194,7 +178,7 @@ Done when:
 Planning rules:
 - decide `layout_type` in `plan.json`, not later in prompt generation
 - `layout_type` should express information structure, not visual style keywords
-- if the user already fixed the final on-slide wording for a page, set `content_mode` to `locked`, fill `source_text`, and set `copy_locked=true`
+- if the user already provided the page-level PPT content for a page, set `content_mode` to `locked` and fill `source_text`
 - if a page still needs AI content expansion, keep `content_mode` as `generated` and provide `content_hint`
 - avoid using a single `A`-page type for everything
 - recommended `layout_type` vocabulary:
@@ -222,9 +206,7 @@ Minimal schema example:
       "layout_type": "bullet_points",
       "content_mode": "generated",
       "content_hint": "页面内容提示",
-      "source_text": null,
-      "source_origin": null,
-      "copy_locked": false
+      "source_text": null
     }
   ],
   "target_b_ratio": 0.3,
@@ -259,7 +241,8 @@ Goal:
 Convert slide draft content into user-confirmable on-slide text and image-generation prompts.
 
 Fixed-copy rule:
-- if `content_mode="locked"`, `prompt` step must reuse `source_text` exactly and must not rewrite it
+- if `content_mode="locked"`, `prompt` step must treat `source_text` as authoritative page information and generate normal PPT-ready copy that stays faithful to the user-provided content
+- for label-style inputs such as `封面：` / `副标题：` / `主讲：` / `logo：`, keep the semantic role but do not mechanically render the label words on the slide unless the user explicitly wants them shown
 - `draft/slide_draft.json` is optional for locked pages
 
 Action:
@@ -287,6 +270,7 @@ Done when:
 - convert `screen_text.json` into `screen_text.txt`
 - send `screen_text.txt` to the user as a file
 - if the user changes the approved text, sync `prompts/prompts.json` before step 6
+- if the user is unhappy with one page only, rewrite only that page in `prompts/prompts.json`, regenerate that page asset only, overwrite the old asset, and re-run `assemble`
 
 ### Step 6: Visual Asset Generate
 

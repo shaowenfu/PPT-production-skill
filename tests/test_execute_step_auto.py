@@ -79,7 +79,6 @@ def test_auto_routes_fixed_content_project_directly_to_prompt(tmp_path: Path) ->
                     "layout_type": "cover",
                     "content_mode": "locked",
                     "source_text": "固定文案",
-                    "copy_locked": True,
                 }
             ],
             "target_b_ratio": 0.3,

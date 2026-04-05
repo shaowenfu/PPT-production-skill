@@ -21,7 +21,6 @@ def test_slide_plan_accepts_generated_page_by_default() -> None:
 
     page = plan.pages[0]
     assert page.content_mode == "generated"
-    assert page.copy_locked is False
     assert page.source_text is None
 
 
@@ -36,7 +35,6 @@ def test_slide_plan_requires_source_text_for_locked_page() -> None:
                     "category": "B",
                     "layout_type": "cover",
                     "content_mode": "locked",
-                    "copy_locked": True,
                 }
             ],
         )
@@ -59,7 +57,7 @@ def test_slide_plan_rejects_source_text_on_generated_page() -> None:
         )
 
 
-def test_slide_plan_accepts_locked_page_and_defaults_source_origin() -> None:
+def test_slide_plan_accepts_locked_page() -> None:
     plan = SlidePlanDocument(
         project_id="demo",
         pages=[
@@ -70,11 +68,9 @@ def test_slide_plan_accepts_locked_page_and_defaults_source_origin() -> None:
                 "layout_type": "cover",
                 "content_mode": "locked",
                 "source_text": "确定性标题\n- 要点一",
-                "copy_locked": True,
             }
         ],
     )
 
     page = plan.pages[0]
-    assert page.source_origin == "user"
     assert page.source_text == "确定性标题\n- 要点一"

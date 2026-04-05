@@ -44,8 +44,6 @@
       "content_hint": "大纲内容片段或要点",
       "content_mode": "generated",
       "source_text": null,
-      "source_origin": null,
-      "copy_locked": false,
       "category": "A",
       "layout_type": "bullet_list"
     }
@@ -60,10 +58,8 @@
 - `page_id`: 页面唯一标识，格式为 p1, p2, p3...
 - `title`: 页面标题
 - `content_hint`: 大纲内容片段或要点提示
-- `content_mode`: 页面内容来源，`"generated"` 表示需要 Draft 扩写，`"locked"` 表示最终上屏文案已锁定
-- `source_text`: 当 `content_mode="locked"` 时的最终上屏文案真相
-- `source_origin`: 当 `content_mode="locked"` 时的来源，当前支持 `"user"` / `"agent"`
-- `copy_locked`: 是否强制锁定上屏文案；locked 页面必须为 `true`
+- `content_mode`: 页面内容来源，`"generated"` 表示需要 Draft 扩写，`"locked"` 表示用户已经给出了该页的 PPT 内容
+- `source_text`: 当 `content_mode="locked"` 时的用户原始页面信息与文案来源
 - `category`: 页面类别，可选值为 `"A"`（信息型）或 `"B"`（情绪型/金句型）
 - `layout_type`: 布局类型，如 `bullet_list`, `cover`, `quote`, `transition`, `comparison`, `case_study` 等
 - `target_b_ratio`: 目标 B 类页面占比（默认 0.3）
@@ -71,7 +67,7 @@
 
 **内容模式约束**：
 - `generated` 页面必须提供 `content_hint`，且不得提供 `source_text`
-- `locked` 页面必须提供 `source_text`，且 `copy_locked=true`
+- `locked` 页面必须提供 `source_text`
 - 一个项目允许同时混合 `generated` 和 `locked` 页面
 
 # 第四步：深度文案扩写 (Deep Content Generation)
@@ -99,7 +95,7 @@
 - **强制约束**：
   - **分批处理**：默认 `--batch-size 5`，严禁调大。
   - **严苛 JSON 模式**：模型输出必须同时包含 `page_id`、`text`、`prompt`。
-  - **锁定文案模式**：若页面 `content_mode="locked"`，则输出的 `text` 必须与 `source_text` 完全一致，`prompt` 中的中文渲染文案也必须与 `source_text` 完全一致。
+  - **固定内容模式**：若页面 `content_mode="locked"`，则输出的 `text` 和 `prompt` 必须忠实于用户给定页面信息，并整理成正常 PPT 文案；像 `封面：`、`副标题：`、`主讲：` 这类说明性标签默认不直接渲染到页面上，除非用户明确要求。
 - **调用示例**：
   ```bash
   python scripts/visual_prompt_design.py --project-dir PPT/ai_telecom --batch-size 5

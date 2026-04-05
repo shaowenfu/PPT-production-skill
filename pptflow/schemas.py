@@ -15,9 +15,6 @@ class ContractModel(BaseModel):
 PageCategory = Literal["A", "B"]
 SlideIntent = Literal["cover", "content", "quote", "transition", "summary"]
 PageContentMode = Literal["generated", "locked"]
-PageSourceOrigin = Literal["user", "agent"]
-
-
 class SlideDraftSlide(ContractModel):
     page_id: str
     content: str  # 专注于深度的业务逻辑、技术分析或案例详情描述
@@ -45,16 +42,12 @@ class PlanPage(ContractModel):
     layout_type: str
     content_mode: PageContentMode = "generated"
     source_text: Optional[str] = None
-    source_origin: Optional[PageSourceOrigin] = None
-    copy_locked: bool = False
 
     @root_validator(skip_on_failure=True)
     def validate_content_contract(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         content_mode = values.get("content_mode") or "generated"
         content_hint = values.get("content_hint")
         source_text = values.get("source_text")
-        source_origin = values.get("source_origin")
-        copy_locked = bool(values.get("copy_locked"))
 
         normalized_content_hint = content_hint.strip() if isinstance(content_hint, str) else None
         normalized_source_text = source_text.strip() if isinstance(source_text, str) else None
@@ -66,18 +59,10 @@ class PlanPage(ContractModel):
                 raise ValueError("generated page must define non-empty content_hint")
             if normalized_source_text is not None:
                 raise ValueError("generated page must not define source_text")
-            if copy_locked:
-                raise ValueError("generated page cannot set copy_locked=true")
-            if source_origin is not None:
-                raise ValueError("generated page must not define source_origin")
             return values
 
         if not normalized_source_text:
             raise ValueError("locked page must define non-empty source_text")
-        if not copy_locked:
-            raise ValueError("locked page must set copy_locked=true")
-        if source_origin is None:
-            values["source_origin"] = "user"
         return values
 
 
@@ -172,7 +157,6 @@ __all__ = [
     "ContractModel",
     "PageContentMode",
     "PageCategory",
-    "PageSourceOrigin",
     "PlanPage",
     "PromptDocument",
     "PromptItem",
