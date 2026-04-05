@@ -297,8 +297,8 @@ Run one page or rerun selected pages:
 ```
 
 Batch rule for large runs:
-- if the current asset generation covers many pages, split it into batches of at most `30` pages
-- after each batch finishes, send the user a short progress update such as `已完成第一批 1~30 页，继续下一批`
+- if the current asset generation covers many pages, split it into batches of at most `10` pages
+- after each batch finishes, send the user a short progress update such as `已完成第一批 1~10 页，继续下一批`
 - do not pause for confirmation between batches; continue directly with the next batch after reporting progress
 
 Output:
@@ -324,11 +324,19 @@ Action:
 
 Output:
 - `PPT/<project_id>/deck/deck.pptx`
+- `PPT/<project_id>/deck/deck.preview.pptx` when the full deck is too large for common messaging tools
 
 Done when:
 - `deck.pptx` exists
 - slides use full-screen images
 - speaker notes are present for the generated pages
+- if the full deck is too large to send directly through common messaging tools, prepare a preview PPT by taking the longest front prefix of the full deck that stays under `25MB`
+- send the preview PPT first instead of the full deck
+- tell the user that the full PPT remains on the server and provide ready-to-run `scp` download commands for both Windows and Mac
+- fill the `scp` command with the actual server IP, remote PPT path, and port known in the current environment; do not leave placeholders if the values are available
+- use this command format:
+  - Windows: `scp -P 22 root@<server_ip>:<remote_full_ppt_path> $HOME\\Desktop\\`
+  - Mac: `scp -P 22 root@<server_ip>:<remote_full_ppt_path> ~/Desktop/`
 
 ## Blocker handling
 
@@ -348,6 +356,7 @@ Keep the response short and operational. Include:
 - changed artifact
 - current state or next step
 - blocker, if any
+- if delivery uses a preview PPT, explicitly say that the preview was sent first because of file-size limits and include the Windows and Mac `scp` commands for downloading the full deck
 
 ## Quick references
 
@@ -366,3 +375,4 @@ Keep the response short and operational. Include:
 - Asset manifest: `PPT/<project_id>/assets/manifest.json`
 - Asset review path: `PPT/<project_id>/assets/manifest.txt`
 - Final deck: `PPT/<project_id>/deck/deck.pptx`
+- Preview deck: `PPT/<project_id>/deck/deck.preview.pptx`
