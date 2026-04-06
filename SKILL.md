@@ -291,6 +291,8 @@ Done when:
 - for such image-heavy locked pages, the prompt must explicitly say `render only the exact text below`, and must explicitly forbid extra text, pseudo-text, gibberish, watermark text, or invented labels.
 - before step 6, if a locked page is image-heavy or infographic-like, verify not only the title but also the critical visible labels/entries that must appear on the slide. If those labels are missing from prompt text, fix the page before image generation.
 - for label-style source lines such as `封面：` / `副标题：` / `主讲：` / `logo：` / `标题：` that act as structural field names, treat the label as a semantic role by default, not as text that must appear literally on the slide. The agent should render the underlying value as normal PPT copy unless the user explicitly asks to keep the label words.
+- for case-study pages, industry pages, and solution pages, if the title or locked copy clearly implies a real-world domain or scene (for example restaurant, factory, beauty salon, livestream studio, retail store, clinic, classroom, warehouse), the prompt must explicitly include matching real-world visual scene cues instead of relying on generic abstract business imagery.
+- in step 5.5, check visual fidelity as well as copy fidelity: verify that the prompt names the correct domain scene when the page content implies one. If a restaurant case page does not mention a restaurant/storefront/dining scene, or a digital-anchor page does not mention a livestream or virtual-host scene, fix the prompt before image generation.
 
 ### Step 5.5: Prompt Copy Check
 
