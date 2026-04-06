@@ -69,6 +69,7 @@ class PlanPage(ContractModel):
 class SlidePlanDocument(ContractModel):
     project_id: str
     pages: List[PlanPage] = Field(default_factory=list)
+    master_style_prompt: Optional[str] = None
     target_b_ratio: float = 0.3
     actual_b_ratio: float = 0.0
     metadata: Dict[str, Any] = Field(default_factory=dict)

@@ -17,6 +17,7 @@
 - **状态机驱动 (State-Driven)**：每个项目拥有独立的 `state.json` 存盘点，支持流程的断点续传与精准回退。
 - **视觉导演系统 (Visual Director)**：Step 5 同时产出 `screen_text.json` 和 `prompts.json`，把用户确认的上屏文字与机器使用的图像提示词分开。
 - **固定内容模式 (Fixed-content Mode)**：当用户已经给出逐页 PPT 内容时，可直接把页面信息写入 `plan.json`，跳过 Draft 扩写，只做屏显文案整理、设计与出图。
+- **DOCX 预处理层**：当输入是 `.docx` 时，先通过 `scripts/docx_to_text.py` 转成 `.txt`，同时把图片提取到 `PPT/pic/`，减少 Word 富文本、表格、图片导致的信息丢失。
 - **原子化脚本 (Atomic Scripts)**：流程解耦为 7 个独立可验证的 Python 脚本，易于 Agent 调用与人工调试。
 - **平台薄入口 (Thin Skill Entry)**：通过 `skill.sh` 和 `scripts/execute_step.py` 对外暴露稳定入口，不把业务流程封成黑盒。
 - **生产级 Skill 指南**：根目录 `SKILL.md` 定义了 Agent 执行的标准 SOP。
@@ -37,6 +38,12 @@
 
 固定内容场景：
 - 若 `plan.json` 页面设置了 `content_mode="locked"` 与 `source_text`，Step 4 可跳过，Step 5 会把 `source_text` 视为权威页面信息，生成正常 PPT 屏显文案与视觉提示词。
+
+`.docx` 输入场景：
+- 先执行 `python scripts/docx_to_text.py --input-docx <source.docx>`
+- 再使用生成的 `.txt` 进入 `Scope Gate`、`Outline Ingest` 和后续步骤
+- 提取出的图片会保存到 `PPT/pic/`，文本里保留 `[此处有图片]<绝对路径>` 占位，便于 Agent 后续引用
+- 不要直接把原始 `.docx` 当作文本源读取
 
 ---
 

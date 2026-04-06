@@ -49,6 +49,8 @@ Do not redesign this rendering model during execution. Follow it.
 
 - Always start with `Step 0: Scope Gate`. Do not jump straight into the workflow.
 - Use the workflow flexibly based on input maturity. Do not mechanically force every project through the exact same path.
+- If the user provides a `.docx` source document, the agent must run `python scripts/docx_to_text.py --input-docx <source.docx>` first. Use the generated `.txt` as the text source for the workflow, and treat extracted images under `PPT/pic/` as additional source material.
+- Do not read the raw `.docx` file directly as the text source.
 - If the user has already provided concrete page-by-page content, treat that content as the source of truth and route into the fixed-content branch automatically.
 - If you cannot confidently determine whether the input should use the fixed-content branch or the generated-content branch, do not guess. Ask the user to confirm which mode to use.
 - In fixed-content cases, write the user-provided page content into `plan.json` using `content_mode="locked"` and `source_text`. Prefer `./skill.sh --step auto` so the workflow can skip Draft automatically.
@@ -74,6 +76,7 @@ Do not redesign this rendering model during execution. Follow it.
 | `auto` | script | routes to the next required step and skips Draft for user-specified pages | one project or selected pages |
 | `draft` | script | generates deep page content into `draft/slide_draft.json` | only requested `page_ids` |
 | `prompt` | script | generates user-reviewable screen text plus visual prompts from draft content | supports full run, selected pages, and parallel batches |
+| `prompt_copy_check` | agent | verifies locked-page copy against final prompt text before image generation | one project or selected pages |
 | `assets` | script | generates slide images from prompts | supports full run, selected pages, and parallel generation |
 | `assemble` | script | packs images into `deck.pptx` and writes notes | one final deck |
 
@@ -92,6 +95,8 @@ Confirm scope before entering the workflow.
 Action:
 - estimate the requested page count
 - determine whether the user input is a rough idea or already a page-by-page PPT content plan
+- if the source material is a `.docx`, convert it to `.txt` first via `python scripts/docx_to_text.py --input-docx <source.docx>` and use that `.txt` for subsequent scope judgment and planning
+- do not inspect the raw `.docx` as if it were the source text
 - if the user has already provided page-by-page content, route into the fixed-content branch directly instead of forcing the full seven-step flow
 - if the branch type is ambiguous, ask the user to confirm instead of guessing
 - write the global scope note in `PPT/<project_id>/scope/global_plan.txt`
@@ -125,6 +130,8 @@ Turn the user raw material or source outline into a production-ready chapter str
 
 Action:
 Write `PPT/<project_id>/outline/outline.md` directly. Do not use a script.
+
+If the user source is a `.docx`, base the outline on the converted `.txt`, not on direct reading of the raw `.docx`. The `.txt` is the source of truth for understanding the content and writing the outline. `[此处有图片]<绝对路径>` means you should refer to the images extracted from the `.docx` and saved under `PPT/pic/` when writing the outline. Do not ignore them.
 
 Output:
 - `PPT/<project_id>/outline/outline.md`
@@ -180,6 +187,7 @@ Done when:
 Planning rules:
 - decide `layout_type` in `plan.json`, not later in prompt generation
 - `layout_type` should express information structure, not visual style keywords
+- define deck-level visual consistency in `plan.json` with `master_style_prompt`; this should be a reusable global style prompt that can be appended directly to every final image-generation prompt
 - if the user already provided the page-level PPT content for a page, set `content_mode` to `locked` and fill `source_text`
 - if a page still needs AI content expansion, keep `content_mode` as `generated` and provide `content_hint`
 - avoid using a single `A`-page type for everything
@@ -200,6 +208,7 @@ Minimal schema example:
 ```json
 {
   "project_id": "<project_id>",
+  "master_style_prompt": "全局风格提示词",
   "pages": [
     {
       "page_id": "pN",
@@ -278,6 +287,22 @@ Done when:
 - send `screen_text.txt` to the user as a file
 - if the user changes the approved text, sync `prompts/prompts.json` before step 6
 - if the user is unhappy with one page only, rewrite only that page in `prompts/prompts.json`, regenerate that page asset only, overwrite the old asset, and re-run `assemble`
+
+### Step 5.5: Prompt Copy Check
+
+Goal:
+Verify page by page that the user-provided copy and the text included in the final prompts stay consistent before image generation.
+
+Action:
+- compare the user-provided copy for each locked page against the text that the final prompt asks the model to render
+- confirm that required copy is preserved without deletion or expansion
+- if any page is inconsistent, rewrite only that page in `prompts/prompts.json` and re-check before entering step 6
+
+Done when:
+- for every locked page, the final prompt contains copy that stays consistent with the user-provided content
+- no required text is deleted
+- no extra on-slide text is added
+- the prompt is ready for image generation
 
 ### Step 6: Visual Asset Generate
 

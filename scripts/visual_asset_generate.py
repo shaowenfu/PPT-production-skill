@@ -34,7 +34,7 @@ from pptflow.config import load_settings
 from pptflow.errors import InputError
 from pptflow.json_io import read_json, write_json
 from pptflow.paths import resolve_project_dir
-from pptflow.schemas import AssetItem, AssetManifest, PromptDocument
+from pptflow.schemas import AssetItem, AssetManifest, PromptDocument, SlidePlanDocument
 from pptflow.state_store import (
     append_transition,
     load_state,
@@ -46,9 +46,22 @@ TOOL_NAME = "visual_asset_generate"
 MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 DEFAULT_TEXT_RENDERING_SUFFIX = (
-    " Text rendering constraints: ensure Chinese text is clear, accurate, and readable; "
-    "maintain high contrast, crisp edges, accurate glyph shapes, and stable spacing; "
-    "avoid decorative distortion, merged strokes, blurry glow, or unreadable pseudo-fonts."
+    " Text rendering constraints: render only the exact text explicitly specified in this prompt, without deleting, rewriting, paraphrasing, summarizing, adding, or expanding any text. Do not render any other visible text beyond the following content.; "
+    "ensure Chinese text is clear, accurate, and readable; maintain crisp edges, accurate glyph shapes, and stable spacing; "
+)
+DEFAULT_DARK_BACKGROUND_SUFFIX = (
+    " Background constraints: use a dark background only; prefer deep dark tones and low-luminance presentation-safe lighting; "
+    "do not use light backgrounds, white backgrounds, bright canvases, or pale gradients."
+)
+DEFAULT_MASTER_STYLE_SUFFIX = (
+    " Visual Style: High-end corporate AI training presentation, dark mode, deep navy blue (#0B0F19) gradient background, "
+    "subtle neon cyan (#00F0FF) and glowing purple accents. Elements should use isometric 3D glassmorphism (毛玻璃质感) "
+    "and clean vector UI/UX components. Flat design, professional, minimalist, strictly unified color palette across all slides. "
+    "No random color noise."
+)
+DEFAULT_NEGATIVE_CONSTRAINTS_SUFFIX = (
+    " Negative constraints: NO photorealistic humans, NO complex landscapes, NO cartoon styles, NO watercolor, "
+    "NO chaotic multiple colors, strictly maintain the dark tech corporate theme."
 )
 
 
@@ -71,11 +84,22 @@ def _preferred_output_path(assets_dir: Path, page_id: str, image_provider: str) 
     return assets_dir / f"{page_id}{_preferred_image_extension(image_provider)}"
 
 
-def _compose_final_image_prompt(base_prompt: str) -> str:
+def _compose_final_image_prompt(base_prompt: str, master_style_prompt: str | None = None) -> str:
+    parts: list[str] = []
     prompt = base_prompt.strip()
-    if not prompt:
-        return DEFAULT_TEXT_RENDERING_SUFFIX.strip()
-    return f"{prompt}\n\n{DEFAULT_TEXT_RENDERING_SUFFIX}"
+    if prompt:
+        parts.append(prompt)
+    if master_style_prompt and master_style_prompt.strip():
+        parts.append(master_style_prompt.strip())
+    parts.extend(
+        [
+            DEFAULT_MASTER_STYLE_SUFFIX,
+            DEFAULT_DARK_BACKGROUND_SUFFIX,
+            DEFAULT_NEGATIVE_CONSTRAINTS_SUFFIX,
+            DEFAULT_TEXT_RENDERING_SUFFIX,
+        ]
+    )
+    return "\n\n".join(parts)
 
 
 def _add_script_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -216,13 +240,14 @@ async def _generate_asset_item(
     client: AsyncOpenAI | None,
     settings: Any,
     item: Any,
+    master_style_prompt: str | None,
     output_path: Path,
     semaphore: asyncio.Semaphore,
 ) -> tuple[str, AssetItem | None, dict[str, Any] | None]:
     async with semaphore:
         try:
             print_stderr(f"正在为页面 {item.page_id} 生成图像 ({settings.image_provider}/{settings.image_model})...")
-            final_prompt = _compose_final_image_prompt(item.prompt)
+            final_prompt = _compose_final_image_prompt(item.prompt, master_style_prompt)
             success, dims = await _generate_image(
                 client=client,
                 settings=settings,
@@ -256,6 +281,7 @@ async def _run_asset_generation(
     client: AsyncOpenAI | None,
     settings: Any,
     requests: list[tuple[Any, Path]],
+    master_style_prompt: str | None,
     parallel: int,
 ) -> list[tuple[str, AssetItem | None, dict[str, Any] | None]]:
     semaphore = asyncio.Semaphore(parallel)
@@ -264,6 +290,7 @@ async def _run_asset_generation(
             client=client,
             settings=settings,
             item=item,
+            master_style_prompt=master_style_prompt,
             output_path=output_path,
             semaphore=semaphore,
         )
@@ -293,6 +320,11 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
         raise InputError("提示词文件缺失，请先执行生成提示词步骤")
 
     prompt_doc = PromptDocument(**read_json(prompts_path))
+    plan_path = project_dir / "plan" / "plan.json"
+    master_style_prompt: str | None = None
+    if plan_path.exists():
+        plan_doc = SlidePlanDocument(**read_json(plan_path))
+        master_style_prompt = plan_doc.master_style_prompt
     target_ids = [p.strip() for p in args.target_pages.split(",")] if args.target_pages else None
 
     # 4. 准备生成列表
@@ -350,6 +382,7 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
                 client=client,
                 settings=settings,
                 requests=requests_to_run,
+                master_style_prompt=master_style_prompt,
                 parallel=parallel,
             )
         ):

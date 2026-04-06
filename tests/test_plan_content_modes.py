@@ -60,6 +60,7 @@ def test_slide_plan_rejects_source_text_on_generated_page() -> None:
 def test_slide_plan_accepts_locked_page() -> None:
     plan = SlidePlanDocument(
         project_id="demo",
+        master_style_prompt="dark corporate ai deck",
         pages=[
             {
                 "page_id": "p1",
@@ -73,4 +74,5 @@ def test_slide_plan_accepts_locked_page() -> None:
     )
 
     page = plan.pages[0]
+    assert plan.master_style_prompt == "dark corporate ai deck"
     assert page.source_text == "确定性标题\n- 要点一"

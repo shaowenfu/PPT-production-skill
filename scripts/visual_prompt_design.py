@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -45,6 +46,13 @@ from pptflow.state_store import append_transition, load_state, save_state, set_a
 TOOL_NAME = "visual_prompt_design"
 MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
+
+
+def _page_id_sort_key(page_id: str) -> tuple[int, str]:
+    match = re.fullmatch(r"p(\d+)(.*)", page_id)
+    if match:
+        return int(match.group(1)), match.group(2)
+    return 10**9, page_id
 
 
 def _is_google_rate_limit_error(exc: Exception) -> bool:
@@ -215,16 +223,13 @@ def _build_system_prompt() -> str:
 
 ## 页面设计原则
 1. 设计必须贴合当前页面主题，而不是套用固定的“科技感”模板。
-2. 整套 deck 要统一，但每页都应有合理差异。相邻页面不要重复相同的视觉母题、构图套路或主物体。
 3. 视觉必须服务表达，不要用空泛的艺术词替代真实设计。
 4. 如果页面适合极简，就做极简；如果适合叙事画面，就做叙事；如果适合结构化信息版式，就做结构化信息版式。
+5. 必须在提示词中清晰表达设计意图，而不是让模型自己去“理解”什么是科技感、未来感、创新感等模糊概念。设计意图应该具体到画面元素、构图方式、风格方向等可执行层面。
 
 ## Dark-first rule
 1. 全部页面默认优先使用深色、低亮度、投影友好的背景。
-2. 背景基准可理解为：`dark navy radial glow background, subtle top-center blue illumination`。
-3. 优先使用深蓝、深海军蓝、深炭黑、低饱和冷色背景，而不是大面积高亮底色。
-4. 明确禁止：`light background`, `white background`, `bright canvas`, `pale gradient`。
-5. 即使页面需要更强视觉冲击，也应在深色基底上完成，而不是切换成浅色底。
+2. 即使页面需要更强视觉冲击，也应在深色基底上完成，而不是切换成浅色底。
 
 ## Design intent 优先
 1. 不规定必须出现什么固定图像或固定关键词。
@@ -278,6 +283,7 @@ def _build_system_prompt() -> str:
 2. 禁止出现无意义伪文字。
 3. 禁止把 prompt 写成空洞的艺术评论。
 4. 禁止反复使用固定风格口头禅、固定材质、固定主物体、固定镜头模板。
+5. 图像模型不懂什么是A类页、B类页、封面页、目录页、过渡页等概念，所以你必须把这些设计要求转化成具体的视觉元素和构图指令，而不是让模型自己去“理解”这些抽象概念。
 
 ## 输出要求
 输出必须是 JSON 对象，包含 `items` 数组。
@@ -290,8 +296,9 @@ def _build_system_prompt() -> str:
 1. `text` 是最终上屏的中文文字成稿，只保留用户会在 PPT 页面上看到的内容。
 2. `A` 页的 `text` 用多行纯文本表达：第一行标题，后续每行一个要点，使用 `- ` 开头。
 3. `B` 页的 `text` 默认只写 1 行金句；如果确实需要副标题，可放在第二行。
-4. `prompt` 必须是紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。
-5. 如果页面是 locked，`text` 与 `prompt` 必须忠实于 `Source Text` 所表达的页面信息与展示意图，但不要把说明性字段名误当成最终渲染文案。"""
+4. `prompt` 必须是详细、紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。设计意图应该具体到画面元素、构图方式、风格方向等可执行层面。
+5. 如果页面是 locked，`text` 与 `prompt` 必须忠实于 `Source Text` 所表达的页面信息与展示意图，但不要把说明性字段名误当成最终渲染文案。
+6. 最重要的是，`Prompt` 是直接给图像模型用的，必须包含足够的设计细节和明确的视觉指导，不需要包含rendering constraints以外的任何解释性文字。专注设计。"""
 
 
 def _build_user_prompt(plan: SlidePlanDocument, page_batch: list[dict[str, Any]]) -> str:
@@ -476,7 +483,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
         screen_text_map = {item.page_id: item for item in existing_screen_doc.items}
         for item in all_screen_texts:
             screen_text_map[item.page_id] = item
-        merged_screen_items = sorted(screen_text_map.values(), key=lambda x: int(x.page_id[1:]))
+        merged_screen_items = sorted(screen_text_map.values(), key=lambda x: _page_id_sort_key(x.page_id))
     else:
         merged_screen_items = all_screen_texts
 
@@ -485,7 +492,7 @@ def handle_visual_prompt_design(args: argparse.Namespace) -> dict[str, Any]:
         prompt_map = {item.page_id: item for item in existing_doc.items}
         for item in all_prompts:
             prompt_map[item.page_id] = item
-        merged_items = sorted(prompt_map.values(), key=lambda x: int(x.page_id[1:]))
+        merged_items = sorted(prompt_map.values(), key=lambda x: _page_id_sort_key(x.page_id))
     else:
         merged_items = all_prompts
 
