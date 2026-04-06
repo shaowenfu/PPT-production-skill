@@ -287,6 +287,9 @@ Done when:
 - send `screen_text.txt` to the user as a file
 - if the user changes the approved text, sync `prompts/prompts.json` before step 6
 - if the user is unhappy with one page only, rewrite only that page in `prompts/prompts.json`, regenerate that page asset only, overwrite the old asset, and re-run `assemble`
+- for `.docx`-derived pages that are primarily images, timelines, comparison charts, or infographic pages (for example pages like `P7/P8/P9`), do not treat them as unconstrained `image_only` pages. Extract and preserve the key visible text nodes (title, year labels, model names, axis labels, table headers, legend text, etc.) into both `screen_text.json` and `prompts.json`.
+- for such image-heavy locked pages, the prompt must explicitly say `render only the exact text below`, and must explicitly forbid extra text, pseudo-text, gibberish, watermark text, or invented labels.
+- before step 6, if a locked page is image-heavy or infographic-like, verify not only the title but also the critical visible labels/entries that must appear on the slide. If those labels are missing from prompt text, fix the page before image generation.
 
 ### Step 5.5: Prompt Copy Check
 
