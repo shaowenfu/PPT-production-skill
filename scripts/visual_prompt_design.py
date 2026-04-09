@@ -238,7 +238,7 @@ def _build_system_prompt() -> str:
 4. 能具体时就具体；适合抽象时再抽象。不要默认退化成空泛的抽象科技光效图。
 
 ## Scene richness
-1. 对背景页、痛点页、案例页、场景页，优先采用有真实业务语境的场景化画面，而不是只有单一抽象背景。
+1. 对背景页、痛点页、案例页、场景页，优先采用有真实业务语境的场景化画面，而不是只有单一抽象背景。for case-study pages, industry pages, and solution pages, if the title or locked copy clearly implies a real-world domain or scene (for example restaurant, factory, beauty salon, livestream studio, retail store, clinic, classroom, warehouse), the prompt must explicitly include matching real-world visual scene cues instead of relying on generic abstract business imagery.
 2. 必要时可加入次级视觉元素来丰富层次，例如辅助场景、局部细节、环境线索、信息卡片感元素，但不要堆砌。
 3. 在 prompt 的英文描述中，优先体现这类方向：
    - `industry context`

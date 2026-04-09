@@ -47,7 +47,8 @@ MAX_RATE_LIMIT_RETRIES = 3
 RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 DEFAULT_TEXT_RENDERING_SUFFIX = (
     " Text rendering constraints: render only the exact text explicitly specified in this prompt, without deleting, rewriting, paraphrasing, summarizing, adding, or expanding any text. Do not render any other visible text beyond the following content.; "
-    "ensure Chinese text is clear, accurate, and readable; maintain crisp edges, accurate glyph shapes, and stable spacing; "
+    "ensure Chinese text is clear, accurate, and readable; maintain crisp edges, accurate glyph shapes, and stable spacing; " \
+    "Text alignment should be centered or left-aligned, avoid right-alignment; " \
 )
 DEFAULT_DARK_BACKGROUND_SUFFIX = (
     " Background constraints: use a dark background only; prefer deep dark tones and low-luminance presentation-safe lighting; "
