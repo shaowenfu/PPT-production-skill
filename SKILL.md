@@ -96,7 +96,6 @@ Action:
 - estimate the requested page count
 - determine whether the user input is a rough idea or already a page-by-page PPT content plan
 - if the source material is a `.docx`, convert it to `.txt` first via `python scripts/docx_to_text.py --input-docx <source.docx>` and use that `.txt` for subsequent scope judgment and planning
-- do not inspect the raw `.docx` as if it were the source text
 - if the user has already provided page-by-page content, route into the fixed-content branch directly instead of forcing the full seven-step flow
 - if the branch type is ambiguous, ask the user to confirm instead of guessing
 - write the global scope note in `PPT/<project_id>/scope/global_plan.txt`
@@ -298,12 +297,9 @@ Action:
 - compare the user-provided copy for each locked page against the text that the final prompt asks the model to render
 - confirm that required copy is preserved without deletion or expansion
 - if any page is inconsistent, rewrite only that page in `prompts/prompts.json` and re-check before entering step 6
-- for `.docx`-derived pages that are primarily images, timelines, comparison charts, or infographic pages, do not treat them as unconstrained `image_only` pages. Extract and preserve the key visible text nodes (title, year labels, model names, axis labels, table headers, legend text, etc.) into both `screen_text.json` and `prompts.json`.
-- for such image-heavy locked pages, the prompt must explicitly say `render only the exact text below`, and must explicitly forbid extra text, pseudo-text, gibberish, watermark text, or invented labels.
 - before step 6, if a locked page is image-heavy or infographic-like, verify not only the title but also the critical visible labels/entries that must appear on the slide. If those labels are missing from prompt text, fix the page before image generation.
 - for label-style source lines such as `封面：` / `副标题：` / `主讲：` / `logo：` / `标题：` that act as structural field names, treat the label as a semantic role by default, not as text that must appear literally on the slide. The agent should render the underlying value as normal PPT copy unless the user explicitly asks to keep the label words.
 - for case-study pages, industry pages, and solution pages, if the title or locked copy clearly implies a real-world domain or scene (for example restaurant, factory, beauty salon, livestream studio, retail store, clinic, classroom, warehouse), the prompt must explicitly include matching real-world visual scene cues instead of relying on generic abstract business imagery.
-- in step 5.5, check visual fidelity as well as copy fidelity: verify that the prompt names the correct domain scene when the page content implies one. If a restaurant case page does not mention a restaurant/storefront/dining scene, or a digital-anchor page does not mention a livestream or virtual-host scene, fix the prompt before image generation.
 
 Done when:
 - for every locked page, the final prompt contains copy that stays consistent with the user-provided content
