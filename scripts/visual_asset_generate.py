@@ -48,7 +48,8 @@ RATE_LIMIT_RETRY_DELAY_SECONDS = 2.0
 DEFAULT_TEXT_RENDERING_SUFFIX = (
     " Text rendering constraints: render only the exact text explicitly specified in this prompt, without deleting, rewriting, paraphrasing, summarizing, adding, or expanding any text. Do not render any other visible text beyond the following content.; "
     "ensure Chinese text is clear, accurate, and readable; maintain crisp edges, accurate glyph shapes, and stable spacing; " \
-    "Text alignment should be centered or left-aligned, avoid right-alignment; " \
+    "Text alignment should be centered or left-aligned, avoid right-alignment; "
+    "line breaks must preserve whole words and intended phrases; never split a single word, token, or short fixed phrase across two lines; " \
 )
 DEFAULT_DARK_BACKGROUND_SUFFIX = (
     " Background constraints: use a dark background only; prefer deep dark tones and low-luminance presentation-safe lighting; "
@@ -63,6 +64,17 @@ DEFAULT_MASTER_STYLE_SUFFIX = (
 DEFAULT_NEGATIVE_CONSTRAINTS_SUFFIX = (
     " Negative constraints: NO photorealistic humans, NO complex landscapes, NO cartoon styles, NO watercolor, "
     "NO chaotic multiple colors, strictly maintain the dark tech corporate theme."
+)
+DEFAULT_PAGE_CATEGORY = "A"
+A_PAGE_LAYOUT_SUFFIX = (
+    " page layout constraints: make text the dominant communication layer; keep the title and bullet points visually primary; "
+    "icons, symbols, and decorative graphics may appear only as supporting accents and must not overpower the text block."
+)
+B_PAGE_LAYOUT_SUFFIX = (
+    " page quote constraints: preserve the approved text exactly as provided; do not add markdown, bullets, quote marks, dashes, or extra symbols."
+    "if the quote spans multiple lines, keep the quote block centered when possible and keep line font sizes broadly similar; "
+    "only a few true keywords may be larger or heavier for emphasis without changing the wording."
+    "Keep the text centered."
 )
 
 
@@ -85,7 +97,53 @@ def _preferred_output_path(assets_dir: Path, page_id: str, image_provider: str) 
     return assets_dir / f"{page_id}{_preferred_image_extension(image_provider)}"
 
 
-def _compose_final_image_prompt(base_prompt: str, master_style_prompt: str | None = None) -> str:
+def _normalize_page_category(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().upper()
+        if normalized in {"A", "B"}:
+            return normalized
+    return DEFAULT_PAGE_CATEGORY
+
+
+def _load_page_category_map(project_dir: Path) -> dict[str, str]:
+    plan_path = project_dir / "plan" / "plan.json"
+    if not plan_path.exists():
+        return {}
+
+    try:
+        raw_plan = read_json(plan_path)
+    except Exception:
+        return {}
+
+    if not isinstance(raw_plan, dict):
+        return {}
+
+    raw_pages = raw_plan.get("pages")
+    if not isinstance(raw_pages, list):
+        return {}
+
+    page_category_map: dict[str, str] = {}
+    for raw_page in raw_pages:
+        if not isinstance(raw_page, dict):
+            continue
+        raw_page_id = raw_page.get("page_id")
+        if not isinstance(raw_page_id, str) or not raw_page_id.strip():
+            continue
+        page_category_map[raw_page_id.strip()] = _normalize_page_category(raw_page.get("category"))
+    return page_category_map
+
+
+def _page_category_suffix(page_category: str) -> str:
+    if _normalize_page_category(page_category) == "B":
+        return B_PAGE_LAYOUT_SUFFIX
+    return A_PAGE_LAYOUT_SUFFIX
+
+
+def _compose_final_image_prompt(
+    base_prompt: str,
+    master_style_prompt: str | None = None,
+    page_category: str = DEFAULT_PAGE_CATEGORY,
+) -> str:
     parts: list[str] = []
     prompt = base_prompt.strip()
     if prompt:
@@ -94,6 +152,7 @@ def _compose_final_image_prompt(base_prompt: str, master_style_prompt: str | Non
         parts.append(master_style_prompt.strip())
     parts.extend(
         [
+            _page_category_suffix(page_category),
             DEFAULT_MASTER_STYLE_SUFFIX,
             DEFAULT_DARK_BACKGROUND_SUFFIX,
             DEFAULT_NEGATIVE_CONSTRAINTS_SUFFIX,
@@ -242,13 +301,18 @@ async def _generate_asset_item(
     settings: Any,
     item: Any,
     master_style_prompt: str | None,
+    page_category: str,
     output_path: Path,
     semaphore: asyncio.Semaphore,
 ) -> tuple[str, AssetItem | None, dict[str, Any] | None]:
     async with semaphore:
         try:
             print_stderr(f"正在为页面 {item.page_id} 生成图像 ({settings.image_provider}/{settings.image_model})...")
-            final_prompt = _compose_final_image_prompt(item.prompt, master_style_prompt)
+            final_prompt = _compose_final_image_prompt(
+                item.prompt,
+                master_style_prompt,
+                page_category=page_category,
+            )
             success, dims = await _generate_image(
                 client=client,
                 settings=settings,
@@ -281,7 +345,7 @@ async def _run_asset_generation(
     *,
     client: AsyncOpenAI | None,
     settings: Any,
-    requests: list[tuple[Any, Path]],
+    requests: list[tuple[Any, Path, str]],
     master_style_prompt: str | None,
     parallel: int,
 ) -> list[tuple[str, AssetItem | None, dict[str, Any] | None]]:
@@ -292,10 +356,11 @@ async def _run_asset_generation(
             settings=settings,
             item=item,
             master_style_prompt=master_style_prompt,
+            page_category=page_category,
             output_path=output_path,
             semaphore=semaphore,
         )
-        for item, output_path in requests
+        for item, output_path, page_category in requests
     ]
     return await _run_asset_tasks(tasks)
 
@@ -323,9 +388,13 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
     prompt_doc = PromptDocument(**read_json(prompts_path))
     plan_path = project_dir / "plan" / "plan.json"
     master_style_prompt: str | None = None
+    page_category_map: dict[str, str] = _load_page_category_map(project_dir)
     if plan_path.exists():
-        plan_doc = SlidePlanDocument(**read_json(plan_path))
-        master_style_prompt = plan_doc.master_style_prompt
+        try:
+            plan_doc = SlidePlanDocument(**read_json(plan_path))
+            master_style_prompt = plan_doc.master_style_prompt
+        except Exception:
+            master_style_prompt = None
     target_ids = [p.strip() for p in args.target_pages.split(",")] if args.target_pages else None
 
     # 4. 准备生成列表
@@ -351,9 +420,10 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
 
     # 5. 并发调用图像生成 API
     parallel = max(1, args.parallel)
-    requests_to_run: list[tuple[Any, Path]] = []
+    requests_to_run: list[tuple[Any, Path, str]] = []
     for item in items_to_generate:
         output_path = _preferred_output_path(assets_dir, item.page_id, settings.image_provider)
+        page_category = page_category_map.get(item.page_id, DEFAULT_PAGE_CATEGORY)
         existing_output_path = next(
             (path for path in _candidate_output_paths(assets_dir, item.page_id, settings.image_provider) if path.exists()),
             None,
@@ -375,7 +445,7 @@ def handle_generate(args: argparse.Namespace) -> dict[str, Any]:
             print_stderr(f"跳过已存在的页面: {item.page_id}")
             continue
 
-        requests_to_run.append((item, output_path))
+        requests_to_run.append((item, output_path, page_category))
 
     if requests_to_run:
         for page_id, asset_item, failure in asyncio.run(

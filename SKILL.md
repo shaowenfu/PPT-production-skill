@@ -254,6 +254,7 @@ Convert slide draft content into user-confirmable on-slide text and image-genera
 Fixed-copy rule:
 - if `content_mode="locked"`, `prompt` step must treat `source_text` as authoritative page information and generate normal PPT-ready copy that stays faithful to the user-provided content
 - for label-style inputs such as `封面：` / `副标题：` / `主讲：` / `logo：`, keep the semantic role but do not mechanically render the label words on the slide unless the user explicitly wants them shown
+- if the user-provided copy contains parenthetical text such as `（...）`, treat the text inside the parentheses as a design hint by default: use it to infer scene, mood, composition, icon direction, or emphasis, but do not render the parenthetical text itself on the slide unless the user explicitly asks to show it
 - `draft/slide_draft.json` is optional for locked pages
 
 Action:
@@ -299,12 +300,14 @@ Action:
 - if any page is inconsistent, rewrite only that page in `prompts/prompts.json` and re-check before entering step 6
 - before step 6, if a locked page is image-heavy or infographic-like, verify not only the title but also the critical visible labels/entries that must appear on the slide. If those labels are missing from prompt text, fix the page before image generation.
 - for label-style source lines such as `封面：` / `副标题：` / `主讲：` / `logo：` / `标题：` that act as structural field names, treat the label as a semantic role by default, not as text that must appear literally on the slide. The agent should render the underlying value as normal PPT copy unless the user explicitly asks to keep the label words.
+- for parenthetical design hints such as `（...）` inside user-provided copy, verify that the hint has informed the design direction when relevant, but that the parenthetical text itself is not added into final on-slide copy unless the user explicitly asks for that text to appear
 - for case-study pages, industry pages, and solution pages, if the title or locked copy clearly implies a real-world domain or scene (for example restaurant, factory, beauty salon, livestream studio, retail store, clinic, classroom, warehouse), the prompt must explicitly include matching real-world visual scene cues instead of relying on generic abstract business imagery.
 
 Done when:
 - for every locked page, the final prompt contains copy that stays consistent with the user-provided content
 - no required text is deleted
 - no extra on-slide text is added
+- parenthetical design hints are used as design guidance rather than rendered copy by default
 - the prompt is ready for image generation
 
 ### Step 6: Visual Asset Generate

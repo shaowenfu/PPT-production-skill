@@ -213,7 +213,8 @@ def _build_system_prompt() -> str:
 2. 如果 `Content Mode = locked`，那么 `Source Text` 是该页页面信息、页面文案和结构语义的权威来源。
 3. 对 locked 页面，你必须忠实使用 `Source Text` 提供的信息，不要遗漏、篡改或引入与原意不一致的新内容。
 4. `Source Text` 里如果出现 `封面：`、`标题：`、`副标题：`、`主讲：`、`logo：`、`时间：`、`地点：`、`客户：` 这类字段名或说明性标签，默认把它们理解为结构提示，而不是最终必须渲染到页面上的文字；除非上下文明确要求这些标签名本身也要显示。
-5. 只有 `Content Mode = generated` 的页面，你才可以根据 `Content Input` 提炼上屏文案。
+5. 如果用户给定文案中包含括号 `（...）` 或 `(...)`，默认把括号内文字理解为 design-only hint（仅供设计推断的提示），可用于判断场景、构图、图标方向、情绪、强调重点，但不要把括号内文字本身渲染到页面上；除非上下文明确要求这些括号内容也要显示。
+6. 只有 `Content Mode = generated` 的页面，你才可以根据 `Content Input` 提炼上屏文案。
 
 ## 语言规则
 1. `prompt` 的描述性部分必须使用英文。
@@ -277,6 +278,7 @@ def _build_system_prompt() -> str:
 3. 对 `generated` 页，`B` 页通常输出 1 个中文“金句”；必要时可加 1 个短副标题。
 4. 对 `generated` 页面，中文文案必须短、准、可上屏，避免长句讲稿化。
 5. 对 `locked` 页面，允许根据页面说明语义进行正常的 PPT 文案整理，但必须与用户给定信息保持一致。优先输出适合屏显的正常 PPT 文案，不要把说明性标签机械搬到画面上。
+6. 如果用户原始材料里有括号提示，提炼 `text` 时默认只保留用户真正希望出现在 PPT 上的正文，不把括号内设计提示写进最终 `text`。
 
 ## 禁止事项
 1. 禁止出现 watermark, logo, copyright mark, AI generated mark，“AI生成”类似的水印。
@@ -296,9 +298,10 @@ def _build_system_prompt() -> str:
 1. `text` 是最终上屏的中文文字成稿，只保留用户会在 PPT 页面上看到的内容。
 2. `A` 页的 `text` 用多行纯文本表达：第一行标题，后续每行一个要点，使用 `- ` 开头。
 3. `B` 页的 `text` 默认只写 1 行金句；如果确实需要副标题，可放在第二行。
-4. `prompt` 必须是详细、紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。设计意图应该具体到画面元素、构图方式、风格方向等可执行层面。
-5. 如果页面是 locked，`text` 与 `prompt` 必须忠实于 `Source Text` 所表达的页面信息与展示意图，但不要把说明性字段名误当成最终渲染文案。
-6. 最重要的是，`Prompt` 是直接给图像模型用的，必须包含足够的设计细节和明确的视觉指导，不需要包含rendering constraints以外的任何解释性文字。专注设计。"""
+4. 对含括号设计提示的页面，`text` 不应包含括号内提示文字；但 `prompt` 应吸收这些提示去做正确的视觉设计决策。
+5. `prompt` 必须是详细、紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。设计意图应该具体到画面元素、构图方式、风格方向等可执行层面。
+6. 如果页面是 locked，`text` 与 `prompt` 必须忠实于 `Source Text` 所表达的页面信息与展示意图，但不要把说明性字段名误当成最终渲染文案。
+7. 最重要的是，`Prompt` 是直接给图像模型用的，必须包含足够的设计细节和明确的视觉指导，不需要包含rendering constraints以外的任何解释性文字。专注设计。"""
 
 
 def _build_user_prompt(plan: SlidePlanDocument, page_batch: list[dict[str, Any]]) -> str:
@@ -338,6 +341,7 @@ Additional Directives:
 - Never use light background, white background, bright canvas, or pale gradient.
 - When the page is grounded in real-world business context, prefer scene-based composition with real-world environment cues rather than generic abstract technology imagery.
 - When helpful, enrich those pages with supporting visual details instead of relying on a single abstract object.
+- If user-provided copy contains parenthetical design hints, use them to guide the design direction but do not include the parenthetical text itself in the rendered copy unless explicitly requested.
 - For A pages, prioritize readable Chinese information layout over theatrical visual effects.
 - For B pages, prioritize a strong thematic image derived from the page topic, not generic sci-fi.
 - Treat typography hierarchy as a page-specific design decision. Use one, two, or three levels only when the content actually benefits from it.
