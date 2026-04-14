@@ -65,16 +65,15 @@ DEFAULT_NEGATIVE_CONSTRAINTS_SUFFIX = (
     " Negative constraints: NO photorealistic humans, NO complex landscapes, NO cartoon styles, NO watercolor, "
     "NO chaotic multiple colors, strictly maintain the dark tech corporate theme."
 )
-DEFAULT_PAGE_CATEGORY = "A"
+DEFAULT_PAGE_CATEGORY = "B"
 A_PAGE_LAYOUT_SUFFIX = (
     " page layout constraints: make text the dominant communication layer; keep the title and bullet points visually primary; "
     "icons, symbols, and decorative graphics may appear only as supporting accents and must not overpower the text block."
 )
 B_PAGE_LAYOUT_SUFFIX = (
-    " page quote constraints: preserve the approved text exactly as provided; do not add markdown, bullets, quote marks, dashes, or extra symbols."
-    "if the quote spans multiple lines, keep the quote block centered when possible and keep line font sizes broadly similar; "
-    "only a few true keywords may be larger or heavier for emphasis without changing the wording."
-    "Keep the text centered."
+    " page quote constraints: preserve the approved text exactly as provided; do not add markdown, bullets, quote marks, dashes, or extra symbols. "
+    "For multi-line quotes or parallel statements, maintain parallel emphasis by ensuring all lines use identical font sizes and weights; "
+    "do not create artificial hierarchy between these lines. Keep the text block centered both horizontally and vertically."
 )
 
 

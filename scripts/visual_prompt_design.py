@@ -250,12 +250,12 @@ def _build_system_prompt() -> str:
 
 ## A/B 页原则
 1. `A` 类页是 information-led slide。重点是清晰结构、可读的中文标题和中文要点、服务信息表达的版式。
-2. `B` 类页是 impact-led slide。可以更有情绪和画面张力，但仍必须与页面主题强相关，不能只是空洞海报。同时金句要用大号字体，强烈视觉效果，位于视觉中心的焦点位置，不要被复杂画面淹没了。
+2. `B` 类页是 impact-led slide。可以更有情绪和画面张力，但仍必须与页面主题强相关，不能只是空洞海报。同时金句（或多行平级金句）要用大号字体，强烈视觉效果，整体位于视觉中心的焦点区域，不要被复杂画面淹没了。
 
 ## Typography and hierarchy
 1. 文字层级属于设计决策的一部分，不要机械套用固定模板。
 2. 根据页面类型、文字量、信息复杂度和表达重点，自主决定使用 1 层、2 层或 3 层文字层级。
-3. `B` 类页通常不需要复杂层级，往往 1 层或 2 层就足够；信息更丰富、结构更复杂的 `A` 类页可以使用更明确的层级组织。
+3. `B` 类页应根据内容意图决定层级：如果是单句或主副关系，使用 1-2 层；如果是多行并列金句，应采用对等字号和字重的“平级强调”布局，避免强行拆分主次。
 4. 一级标题通常应更醒目，优先使用 `bold` 或更强字重；标题颜色不要被固定死，应由你根据页面气质和深色背景自行选择协调、清晰、不过分违和的亮色或高对比颜色。
 5. 二级和三级文字应通过字重、字号、颜色、间距来拉开层次，但保持同一套 clean sans-serif Chinese typography，不要做花哨字体拼贴。
 6. 如果页面文字较少，不要为了形式感强行做三层级；如果页面文字较多且层次丰富，应优先保证层级清楚、阅读路径自然。
@@ -275,9 +275,9 @@ def _build_system_prompt() -> str:
 ## 内容蒸馏规则
 1. 对 `generated` 页面，从 `Content Input` 中提炼适合上屏的中文文案，不要把整段讲稿直接搬进图里。
 2. 对 `generated` 页，`A` 页通常输出 1 个中文标题 + 2 至 4 个中文要点。
-3. 对 `generated` 页，`B` 页通常输出 1 个中文“金句”；必要时可加 1 个短副标题。
+3. 对 `generated` 页，`B` 页可输出 1 行或多行平级金句；仅在有显著主次关系时使用副标题结构。
 4. 对 `generated` 页面，中文文案必须短、准、可上屏，避免长句讲稿化。
-5. 对 `locked` 页面，允许根据页面说明语义进行正常的 PPT 文案整理，但必须与用户给定信息保持一致。优先输出适合屏显的正常 PPT 文案，不要把说明性标签机械搬到画面上。
+5. 对 `locked` 页面，允许根据页面说明语义进行正常的 PPT 文案整理，但必须与用户给定信息保持一致。优先输出适合屏显的高保真 PPT 文案，不要把说明性标签机械搬到画面上。
 6. 如果用户原始材料里有括号提示，提炼 `text` 时默认只保留用户真正希望出现在 PPT 上的正文，不把括号内设计提示写进最终 `text`。
 
 ## 禁止事项
@@ -297,7 +297,7 @@ def _build_system_prompt() -> str:
 其中：
 1. `text` 是最终上屏的中文文字成稿，只保留用户会在 PPT 页面上看到的内容。
 2. `A` 页的 `text` 用多行纯文本表达：第一行标题，后续每行一个要点，使用 `- ` 开头。
-3. `B` 页的 `text` 默认只写 1 行金句；如果确实需要副标题，可放在第二行。
+3. `B` 页的 `text` 根据内容决定：单行或多行平级金句均直接按行输出；只有明确的主次文案才按标题+副标题组织。
 4. 对含括号设计提示的页面，`text` 不应包含括号内提示文字；但 `prompt` 应吸收这些提示去做正确的视觉设计决策。
 5. `prompt` 必须是详细、紧凑、具体、可执行的英文指令，内部可用引号包含需要渲染的中文标题或中文要点，而且这些中文内容必须与 `text` 保持一致。设计意图应该具体到画面元素、构图方式、风格方向等可执行层面。
 6. 如果页面是 locked，`text` 与 `prompt` 必须忠实于 `Source Text` 所表达的页面信息与展示意图，但不要把说明性字段名误当成最终渲染文案。
@@ -335,7 +335,7 @@ Additional Directives:
 - Keep the deck visually coherent but not repetitive.
 - Use different compositions across adjacent pages.
 - Make independent design decisions for each page based on its theme, category, and layout type.
-- Respect `Content Mode` strictly. Locked pages must stay faithful to `Source Text`, while turning label-style input into normal PPT-ready copy.
+- Respect `Content Mode` strictly. Locked pages must stay faithful to `Source Text`, while turning label-style input into high-fidelity PPT copy.
 - Prefer dark, low-luminance, projection-friendly backgrounds across the deck.
 - Use `dark navy radial glow background, subtle top-center blue illumination` as the default background direction unless the page strongly requires another dark treatment.
 - Never use light background, white background, bright canvas, or pale gradient.

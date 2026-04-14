@@ -54,7 +54,7 @@ Do not redesign this rendering model during execution. Follow it.
 - If the user has already provided concrete page-by-page content, treat that content as the source of truth and route into the fixed-content branch automatically.
 - If you cannot confidently determine whether the input should use the fixed-content branch or the generated-content branch, do not guess. Ask the user to confirm which mode to use.
 - In fixed-content cases, write the user-provided page content into `plan.json` using `content_mode="locked"` and `source_text`. Prefer `./skill.sh --step auto` so the workflow can skip Draft automatically.
-- For locked pages, the goal is normal PPT-ready copy that stays faithful to the user-provided page information. Do not mechanically print structural labels such as `封面：` or `副标题：` unless the user explicitly wants them rendered.
+- For locked pages, the goal is high-fidelity PPT copy that stays faithful to the user-provided page information and hierarchy (e.g., parallel multiline emphasis for Category B). Do not mechanically print structural labels such as `封面：` or `副标题：` unless the user explicitly wants them rendered.
 - Prefer using AI for structure, page-type judgment, and prompt drafting; prefer human-confirmed source content for final on-slide wording.
 - After every step, stop for user confirmation before the next step.
 - The machine-facing artifact stays in its original format (`.md` / `.json`).
@@ -252,7 +252,7 @@ Goal:
 Convert slide draft content into user-confirmable on-slide text and image-generation prompts.
 
 Fixed-copy rule:
-- if `content_mode="locked"`, `prompt` step must treat `source_text` as authoritative page information and generate normal PPT-ready copy that stays faithful to the user-provided content
+- if `content_mode="locked"`, `prompt` step must treat `source_text` as authoritative page information and generate high-fidelity PPT copy that stays faithful to the user-provided content; for Category B, preserve parallel multiline emphasis if the source implies equal importance.
 - for label-style inputs such as `封面：` / `副标题：` / `主讲：` / `logo：`, keep the semantic role but do not mechanically render the label words on the slide unless the user explicitly wants them shown
 - if the user-provided copy contains parenthetical text such as `（...）`, treat the text inside the parentheses as a design hint by default: use it to infer scene, mood, composition, icon direction, or emphasis, but do not render the parenthetical text itself on the slide unless the user explicitly asks to show it
 - `draft/slide_draft.json` is optional for locked pages
